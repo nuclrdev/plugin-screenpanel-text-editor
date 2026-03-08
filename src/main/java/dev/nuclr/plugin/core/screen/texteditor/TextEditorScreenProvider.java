@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ import javax.swing.text.BadLocationException;
 import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.plugin.PluginTheme;
@@ -68,6 +70,13 @@ public class TextEditorScreenProvider implements ScreenProvider {
 		textArea.setAntiAliasingEnabled(true);
 		textArea.setTabSize(4);
 		textArea.setTabsEmulated(false);
+		try (InputStream themeIn = getClass()
+				.getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/dark.xml")) {
+			if (themeIn != null) {
+				Theme.load(themeIn).apply(textArea);
+			}
+		} catch (IOException ignored) {
+		}
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		applyUiTheme();
