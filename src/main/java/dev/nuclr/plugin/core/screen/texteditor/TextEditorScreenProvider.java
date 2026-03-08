@@ -12,6 +12,8 @@ import java.util.Map;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.UIManager;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
 
 import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
@@ -55,6 +57,9 @@ public class TextEditorScreenProvider implements ScreenProvider {
 	private final JPanel panel = new JPanel(new BorderLayout());
 	private final RSyntaxTextArea textArea = new RSyntaxTextArea();
 	private final RTextScrollPane scroll = new RTextScrollPane(textArea);
+	private Path currentPath;
+	private boolean dirty;
+	private boolean loading;
 
 	public TextEditorScreenProvider() {
 		textArea.setCodeFoldingEnabled(true);
@@ -64,6 +69,22 @@ public class TextEditorScreenProvider implements ScreenProvider {
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		applyUiTheme();
+		textArea.getDocument().addDocumentListener(new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				markDirty();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				markDirty();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				markDirty();
+			}
+		});
 	}
 
 	@Override
@@ -83,6 +104,7 @@ public class TextEditorScreenProvider implements ScreenProvider {
 	@Override
 	public JComponent open(Path path) throws Exception {
 		applyUiTheme();
+		currentPath = path;
 
 		String filename = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 		String content;
@@ -97,12 +119,28 @@ public class TextEditorScreenProvider implements ScreenProvider {
 		setText(filename, content);
 		textArea.setEditable(editable);
 		textArea.setCaretPosition(0);
+		dirty = false;
 		return panel;
 	}
 
 	@Override
 	public void close() {
 		// Keep component instance for reuse.
+	}
+
+	@Override
+	public boolean isDirty() {
+		return dirty;
+	}
+
+	@Override
+	public boolean save() throws Exception {
+		if (currentPath == null || !textArea.isEditable()) {
+			return false;
+		}
+		Files.writeString(currentPath, textArea.getText(), StandardCharsets.UTF_8);
+		dirty = false;
+		return true;
 	}
 
 	@Override
@@ -120,9 +158,33 @@ public class TextEditorScreenProvider implements ScreenProvider {
 		} catch (BadLocationException e) {
 			return;
 		}
+		loading = true;
 		textArea.setDocument(newDoc);
+		textArea.getDocument().addDocumentListener(new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				markDirty();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				markDirty();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				markDirty();
+			}
+		});
 		textArea.setSyntaxEditingStyle(style);
 		textArea.discardAllEdits();
+		loading = false;
+	}
+
+	private void markDirty() {
+		if (!loading && textArea.isEditable()) {
+			dirty = true;
+		}
 	}
 
 	private void applyUiTheme() {
