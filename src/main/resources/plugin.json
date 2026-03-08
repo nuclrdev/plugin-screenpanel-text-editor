@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"name": "Screen Text Editor",
+	"id": "dev.nuclr.plugin.core.screen.texteditor",
+	"version": "1.0.0",
+	"description": "Text editor screen provider (F4) for readable files.",
+	"author": "Nuclr Development Team",
+	"license": "Apache-2.0",
+	"website": "https://nuclr.dev",
+	"pageUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+	"docUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+	"type": "Official",
+	"screenProviders": [
+		"dev.nuclr.plugin.core.screen.texteditor.TextEditorScreenProvider"
+	]
+}
