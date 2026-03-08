@@ -21,6 +21,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
+import dev.nuclr.plugin.PluginTheme;
 import dev.nuclr.plugin.ScreenProvider;
 
 public class TextEditorScreenProvider implements ScreenProvider {
@@ -60,6 +61,7 @@ public class TextEditorScreenProvider implements ScreenProvider {
 	private Path currentPath;
 	private boolean dirty;
 	private boolean loading;
+	private PluginTheme pluginTheme;
 
 	public TextEditorScreenProvider() {
 		textArea.setCodeFoldingEnabled(true);
@@ -121,6 +123,12 @@ public class TextEditorScreenProvider implements ScreenProvider {
 		textArea.setCaretPosition(0);
 		dirty = false;
 		return panel;
+	}
+
+	@Override
+	public void applyTheme(PluginTheme theme) {
+		this.pluginTheme = theme;
+		applyUiTheme();
 	}
 
 	@Override
@@ -193,29 +201,42 @@ public class TextEditorScreenProvider implements ScreenProvider {
 	}
 
 	private void applyUiTheme() {
-		Font base = UIManager.getFont("defaultFont");
+		Font base = pluginTheme != null
+				? pluginTheme.defaultFont()
+				: UIManager.getFont("defaultFont");
 		if (base == null) {
 			base = new Font("JetBrains Mono", Font.PLAIN, 12);
 		}
 		textArea.setFont(base.deriveFont(Font.PLAIN, base.getSize2D()));
-		textArea.setBackground(uiColor("TextArea.background", textArea.getBackground()));
-		textArea.setForeground(uiColor("TextArea.foreground", textArea.getForeground()));
-		textArea.setCaretColor(uiColor("TextArea.caretForeground", textArea.getForeground()));
-		textArea.setSelectionColor(uiColor("TextArea.selectionBackground", textArea.getSelectionColor()));
-		textArea.setCurrentLineHighlightColor(
-				uiColor("TextArea.selectionBackground", textArea.getCurrentLineHighlightColor()));
+		Color background = themeColor("Panel.background", textArea.getBackground());
+		Color foreground = themeColor("Panel.foreground", textArea.getForeground());
+		Color selectionBackground = themeColor("Table.selectionBackground", textArea.getSelectionColor());
+		Color selectionForeground = themeColor("Table.selectionForeground", textArea.getSelectedTextColor());
+		Color gutterBackground = themeColor("TableHeader.background", background);
+		Color gutterForeground = themeColor("Label.foreground", foreground);
+
+		textArea.setBackground(background);
+		textArea.setForeground(foreground);
+		textArea.setCaretColor(foreground);
+		textArea.setSelectionColor(selectionBackground);
+		textArea.setSelectedTextColor(selectionForeground);
+		textArea.setCurrentLineHighlightColor(themeColor("Table.gridColor", gutterBackground));
 
 		var gutter = scroll.getGutter();
 		if (gutter != null) {
-			gutter.setBackground(uiColor("Panel.background", scroll.getBackground()));
-			gutter.setLineNumberColor(uiColor("Label.foreground", textArea.getForeground()));
+			gutter.setBackground(gutterBackground);
+			gutter.setLineNumberColor(gutterForeground);
 			gutter.setLineNumberFont(textArea.getFont());
 		}
-		scroll.getViewport().setBackground(textArea.getBackground());
-		scroll.setBackground(uiColor("Panel.background", scroll.getBackground()));
+		scroll.getViewport().setBackground(background);
+		scroll.setBackground(background);
+		panel.setBackground(background);
 	}
 
-	private static Color uiColor(String key, Color fallback) {
+	private Color themeColor(String key, Color fallback) {
+		if (pluginTheme != null) {
+			return pluginTheme.color(key, fallback);
+		}
 		Color color = UIManager.getColor(key);
 		return color != null ? color : fallback;
 	}
