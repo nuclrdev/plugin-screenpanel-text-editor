@@ -129,6 +129,11 @@ public class TextEditorScreenProvider implements ScreenProvider {
 	}
 
 	@Override
+	public void focus() {
+		textArea.requestFocusInWindow();
+	}
+
+	@Override
 	public boolean isDirty() {
 		return dirty;
 	}
