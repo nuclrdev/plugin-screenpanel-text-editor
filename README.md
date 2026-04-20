@@ -1,96 +1,58 @@
-# Nuclr Screen Panel — Text Editor
+# Nuclr Screen Panel - Text Editor
 
-An official [Nuclr Commander](https://nuclr.dev) plugin that provides a syntax-highlighted text editor screen (F4) for any readable file.
+An official [Nuclr Commander](https://nuclr.dev) plugin that provides a
+syntax-highlighted text editor screen for readable files.
 
 ## Features
 
-- **Syntax highlighting** for 25+ languages via [RSyntaxTextArea](https://github.com/bobbylight/RSyntaxTextArea)
-- **Code folding** and **anti-aliased rendering**
-- **Line numbers** in the gutter
-- **Theme-aware** — inherits colors from the active FlatLaf UI theme
-- **Graceful fallback** — opens files in read-only mode when a read error occurs
-- **Low priority** (10) — higher-priority screen providers take precedence for specialized formats
-
-## Supported Languages
-
-| Extension(s) | Language |
-|---|---|
-| `.java` | Java |
-| `.js`, `.mjs` | JavaScript |
-| `.ts`, `.tsx` | TypeScript |
-| `.json` | JSON |
-| `.xml` | XML |
-| `.html`, `.htm` | HTML |
-| `.css` | CSS |
-| `.py` | Python |
-| `.sql` | SQL |
-| `.c`, `.h` | C |
-| `.cpp`, `.hpp` | C++ |
-| `.cs` | C# |
-| `.go` | Go |
-| `.rs` | Rust |
-| `.php` | PHP |
-| `.yaml`, `.yml` | YAML |
-| `.md` | Markdown |
-| `.properties` | Java Properties |
-| `.ini` | INI |
-| `.toml` | TOML |
-| `.csv` | CSV |
-
-All other readable files open with no syntax highlighting.
+- Syntax highlighting for common source and config formats via
+  [RSyntaxTextArea](https://github.com/bobbylight/RSyntaxTextArea)
+- Code folding and anti-aliased rendering
+- Line numbers in the gutter
+- Theme-aware editor colors and font sizing through `NuclrThemeScheme`
+- Graceful fallback to read-only mode when the file cannot be read as UTF-8
+- Exposes the SDK `FullScreenEditor` role
 
 ## Requirements
 
 - Java 21+
 - Maven 3.9+
-- [Nuclr plugins-sdk](https://nuclr.dev) 1.0.0 installed in local Maven repository
-- Signing keystore at `C:/nuclr/key/nuclr-signing.p12` (for `mvn verify`)
+- `platform-sdk` 2.0.4 installed in the local Maven repository
+- Signing keystore at `C:/nuclr/key/nuclr-signing.p12` for `mvn verify`
 
 ## Build
-
-Install the plugins-sdk first if you haven't already:
-
-```bash
-cd plugins-sdk
-mvn clean install
-```
-
-Then build this plugin:
 
 ```bash
 cd plugins/core/screenpanel-text-editor
 mvn clean verify -Djarsigner.storepass=<keystore-password>
 ```
 
-This produces a signed plugin archive in `target/`:
+This produces:
 
-```
+```text
 target/
-  screenpanel-text-editor-1.0.0.zip      # plugin archive
-  screenpanel-text-editor-1.0.0.zip.sig  # RSA SHA256 signature
+  screenpanel-text-editor-1.0.0.zip
+  screenpanel-text-editor-1.0.0.zip.sig
 ```
+
+## SDK Notes
+
+This plugin now follows the `NuclrPlugin` contract from `platform-sdk 2.0.4`
+and is implemented as a concrete `NuclrPlugin` with role
+`NuclrPluginRole.FullScreenEditor`.
+
+Commander currently discovers that role in the SDK, but fullscreen UI routing is
+still an application concern rather than a plugin concern.
 
 ## Installation
 
-Copy both files to the Nuclr Commander `plugins/` directory:
+Copy both files to Commander `plugins/`:
 
 ```bash
 cp target/screenpanel-text-editor-1.0.0.zip     <commander>/plugins/
 cp target/screenpanel-text-editor-1.0.0.zip.sig <commander>/plugins/
 ```
 
-Or run `deploy.bat` on Windows to build and deploy in one step (targets `C:\nuclr\sources\commander\plugins\`).
-
-## Plugin Manifest
-
-```json
-{
-  "id": "dev.nuclr.plugin.core.screen.texteditor",
-  "type": "Official",
-  "screenProviders": ["dev.nuclr.plugin.core.screen.texteditor.TextEditorScreenProvider"]
-}
-```
-
 ## License
 
-Apache-2.0 — see [nuclr.dev](https://nuclr.dev) for details.
+Apache-2.0 - see [nuclr.dev](https://nuclr.dev) for details.
