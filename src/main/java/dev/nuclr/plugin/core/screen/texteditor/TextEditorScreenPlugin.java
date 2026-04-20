@@ -375,9 +375,13 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 			}
 		};
 		var escape = KeyStroke.getKeyStroke("ESCAPE");
+		var f3 = KeyStroke.getKeyStroke("F3");
 		bindFullscreenClose(panel, escape, closeAction);
 		bindFullscreenClose(scroll, escape, closeAction);
 		bindFullscreenClose(textArea, escape, closeAction);
+		bindFullscreenClose(panel, f3, closeAction);
+		bindFullscreenClose(scroll, f3, closeAction);
+		bindFullscreenClose(textArea, f3, closeAction);
 	}
 
 	private static void bindFullscreenClose(JComponent component, KeyStroke keyStroke, AbstractAction action) {
