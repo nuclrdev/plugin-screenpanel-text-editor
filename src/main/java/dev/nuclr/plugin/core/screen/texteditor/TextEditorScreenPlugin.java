@@ -3,6 +3,7 @@ package dev.nuclr.plugin.core.screen.texteditor;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -12,8 +13,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -32,6 +35,8 @@ import dev.nuclr.platform.plugin.NuclrPluginRole;
 import dev.nuclr.platform.plugin.NuclrResourcePath;
 
 public class TextEditorScreenPlugin implements NuclrPlugin {
+
+	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Screen Text Editor";
@@ -97,6 +102,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		attachDirtyTracking();
+		registerFullscreenCloseShortcut();
 		applyUiTheme();
 	}
 
@@ -216,7 +222,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		String filename = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 
 		String content;
-		boolean editable = true;
+		boolean editable = isEditable();
 		try {
 			content = Files.readString(path, StandardCharsets.UTF_8);
 		} catch (IOException ex) {
@@ -228,6 +234,10 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		textArea.setEditable(editable);
 		textArea.setCaretPosition(0);
 		dirty = false;
+		return true;
+	}
+	
+	public boolean isEditable() {
 		return true;
 	}
 
@@ -353,10 +363,26 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		scroll.setBackground(background);
 		panel.setBackground(background);
 		
-		// If ESC is pressed, emit "plugin.fullscreen.close"
-		textArea.getInputMap().put(javax.swing.KeyStroke.getKeyStroke("ESCAPE"), "plugin.fullscreen.close");
-		
-		
+	}
+
+	private void registerFullscreenCloseShortcut() {
+		var closeAction = new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				if (context != null && context.getEventBus() != null) {
+					context.getEventBus().emit(CLOSE_FULLSCREEN_ACTION);
+				}
+			}
+		};
+		var escape = KeyStroke.getKeyStroke("ESCAPE");
+		bindFullscreenClose(panel, escape, closeAction);
+		bindFullscreenClose(scroll, escape, closeAction);
+		bindFullscreenClose(textArea, escape, closeAction);
+	}
+
+	private static void bindFullscreenClose(JComponent component, KeyStroke keyStroke, AbstractAction action) {
+		component.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(keyStroke, CLOSE_FULLSCREEN_ACTION);
+		component.getActionMap().put(CLOSE_FULLSCREEN_ACTION, action);
 	}
 
 	private static Color themeColor(NuclrThemeScheme themeScheme, String key, Color fallback) {

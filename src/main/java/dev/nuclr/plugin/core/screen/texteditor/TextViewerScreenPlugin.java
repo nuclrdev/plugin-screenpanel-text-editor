@@ -27,5 +27,10 @@ public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 		return List.of(f1, f2, f3, f4, f6, f7, f10);
 		
 	}
+	
+	@Override
+	public boolean isEditable() {
+		return false;
+	}
 
 }
