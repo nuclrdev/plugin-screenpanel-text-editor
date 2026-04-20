@@ -3,6 +3,7 @@ package dev.nuclr.plugin.core.screen.texteditor;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.io.InputStream;
@@ -37,6 +38,7 @@ import dev.nuclr.platform.plugin.NuclrResourcePath;
 public class TextEditorScreenPlugin implements NuclrPlugin {
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
+	private static final String PREFERRED_EDITOR_FONT = "JetBrains Mono";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Screen Text Editor";
@@ -334,15 +336,13 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 
 	private void applyUiTheme(NuclrThemeScheme themeScheme) {
 		Font base = themeScheme != null ? themeScheme.defaultFont() : UIManager.getFont("defaultFont");
-		if (base == null) {
-			base = new Font("JetBrains Mono", Font.PLAIN, 12);
-		}
-		textArea.setFont(base.deriveFont(Font.PLAIN, base.getSize2D()));
+		textArea.setFont(editorFont(base));
 
 		Color background = themeColor(themeScheme, "Panel.background", textArea.getBackground());
 		Color foreground = themeColor(themeScheme, "Panel.foreground", textArea.getForeground());
-		Color selectionBackground = themeColor(themeScheme, "Table.selectionBackground", textArea.getSelectionColor());
-		Color selectionForeground = themeColor(themeScheme, "Table.selectionForeground", textArea.getSelectedTextColor());
+		Color accentSelection = themeColor(themeScheme, "Table.selectionBackground", textArea.getSelectionColor());
+		Color selectionBackground = blend(background, accentSelection, 0.26f);
+		Color selectionForeground = foreground;
 		Color gutterBackground = themeColor(themeScheme, "TableHeader.background", background);
 		Color gutterForeground = themeColor(themeScheme, "Label.foreground", foreground);
 
@@ -391,6 +391,31 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		}
 		Color color = UIManager.getColor(key);
 		return color != null ? color : fallback;
+	}
+
+	private static Color blend(Color base, Color overlay, float overlayWeight) {
+		float clamped = Math.max(0f, Math.min(1f, overlayWeight));
+		float baseWeight = 1f - clamped;
+		return new Color(
+				Math.round(base.getRed() * baseWeight + overlay.getRed() * clamped),
+				Math.round(base.getGreen() * baseWeight + overlay.getGreen() * clamped),
+				Math.round(base.getBlue() * baseWeight + overlay.getBlue() * clamped));
+	}
+
+	private static Font editorFont(Font baseFont) {
+		Font fallback = baseFont != null ? baseFont : new Font(Font.MONOSPACED, Font.PLAIN, 13);
+		int size = Math.max(11, fallback.getSize());
+		String family = hasFontFamily(PREFERRED_EDITOR_FONT) ? PREFERRED_EDITOR_FONT : Font.MONOSPACED;
+		return new Font(family, Font.PLAIN, size);
+	}
+
+	private static boolean hasFontFamily(String family) {
+		for (String name : GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()) {
+			if (family.equalsIgnoreCase(name)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static String extension(String filename) {
