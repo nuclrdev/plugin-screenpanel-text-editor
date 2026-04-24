@@ -30,14 +30,16 @@ import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.platform.NuclrThemeScheme;
+import dev.nuclr.platform.events.NuclrEventListener;
 import dev.nuclr.platform.plugin.NuclrPlugin;
 import dev.nuclr.platform.plugin.NuclrPluginContext;
 import dev.nuclr.platform.plugin.NuclrPluginRole;
 import dev.nuclr.platform.plugin.NuclrResourcePath;
 
-public class TextEditorScreenPlugin implements NuclrPlugin {
+public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
+	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
 	private static final String PREFERRED_EDITOR_FONT = "JetBrains Mono";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
@@ -95,6 +97,8 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		textArea.setAntiAliasingEnabled(true);
 		textArea.setTabSize(4);
 		textArea.setTabsEmulated(false);
+		textArea.setLineWrap(false);
+		textArea.setWrapStyleWord(true);
 		try (InputStream themeIn = getClass().getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/dark.xml")) {
 			if (themeIn != null) {
 				Theme.load(themeIn).apply(textArea);
@@ -104,6 +108,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		attachDirtyTracking();
+		registerWrapShortcut();
 		registerFullscreenCloseShortcut();
 		applyUiTheme();
 	}
@@ -202,11 +207,17 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 	@Override
 	public void load(NuclrPluginContext context, boolean template) {
 		this.context = context;
+		if (!template && context.getEventBus() != null) {
+			context.getEventBus().subscribe(this);
+		}
 		applyUiTheme();
 	}
 
 	@Override
 	public void unload() {
+		if (context != null && context.getEventBus() != null) {
+			context.getEventBus().unsubscribe(this);
+		}
 	}
 
 	@Override
@@ -267,6 +278,19 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 	@Override
 	public boolean singleton() {
 		return false;
+	}
+
+	@Override
+	public boolean isMessageSupported(String type) {
+		return TOGGLE_WRAP_ACTION.equals(type);
+	}
+
+	@Override
+	public void handleMessage(Object source, String type, Map<String, Object> event) {
+		if (!TOGGLE_WRAP_ACTION.equals(type) || !isFocused()) {
+			return;
+		}
+		toggleWrap();
 	}
 
 	@Override
@@ -384,9 +408,33 @@ public class TextEditorScreenPlugin implements NuclrPlugin {
 		bindFullscreenClose(textArea, f3, closeAction);
 	}
 
+	private void registerWrapShortcut() {
+		var wrapAction = new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				toggleWrap();
+			}
+		};
+		var f2 = KeyStroke.getKeyStroke("F2");
+		bindAction(panel, f2, TOGGLE_WRAP_ACTION, wrapAction);
+		bindAction(scroll, f2, TOGGLE_WRAP_ACTION, wrapAction);
+		bindAction(textArea, f2, TOGGLE_WRAP_ACTION, wrapAction);
+	}
+
+	private void toggleWrap() {
+		textArea.setLineWrap(!textArea.getLineWrap());
+		textArea.setWrapStyleWord(textArea.getLineWrap());
+		textArea.revalidate();
+		textArea.repaint();
+	}
+
 	private static void bindFullscreenClose(JComponent component, KeyStroke keyStroke, AbstractAction action) {
-		component.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(keyStroke, CLOSE_FULLSCREEN_ACTION);
-		component.getActionMap().put(CLOSE_FULLSCREEN_ACTION, action);
+		bindAction(component, keyStroke, CLOSE_FULLSCREEN_ACTION, action);
+	}
+
+	private static void bindAction(JComponent component, KeyStroke keyStroke, String actionKey, AbstractAction action) {
+		component.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(keyStroke, actionKey);
+		component.getActionMap().put(actionKey, action);
 	}
 
 	private static Color themeColor(NuclrThemeScheme themeScheme, String key, Color fallback) {
