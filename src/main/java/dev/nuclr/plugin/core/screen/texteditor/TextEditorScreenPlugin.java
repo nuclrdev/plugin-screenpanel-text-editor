@@ -43,7 +43,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	private static final String PREFERRED_EDITOR_FONT = "JetBrains Mono";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
-	private static final String PLUGIN_NAME = "Screen Text Editor";
+	private static final String PLUGIN_NAME = "Text Editor";
 	private static final String PLUGIN_VERSION = "1.0.0";
 	private static final String PLUGIN_DESCRIPTION = "Text editor screen provider (F4) for readable files.";
 	private static final String PLUGIN_AUTHOR = "Nuclr Development Team";
