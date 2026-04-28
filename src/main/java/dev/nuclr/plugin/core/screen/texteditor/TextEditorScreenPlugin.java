@@ -247,6 +247,9 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 		textArea.setEditable(editable);
 		textArea.setCaretPosition(0);
 		dirty = false;
+		
+		this.context.getEventBus().emit("main.window.title", Map.of("title", path.toString()));
+		
 		return true;
 	}
 	
