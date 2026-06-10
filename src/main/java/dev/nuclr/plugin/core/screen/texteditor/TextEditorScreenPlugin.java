@@ -31,12 +31,14 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.platform.NuclrThemeScheme;
 import dev.nuclr.platform.events.NuclrEventListener;
-import dev.nuclr.platform.plugin.NuclrPlugin;
+import dev.nuclr.platform.plugin.FullscreenNuclrPlugin;
+import dev.nuclr.platform.plugin.NuclrPluginCallback;
 import dev.nuclr.platform.plugin.NuclrPluginContext;
-import dev.nuclr.platform.plugin.NuclrPluginRole;
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
+import lombok.extern.slf4j.Slf4j;
 
-public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
+@Slf4j
+public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEventListener {
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
@@ -44,7 +46,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Text Editor";
-	private static final String PLUGIN_VERSION = "1.0.0";
+	private static final String PLUGIN_VERSION = loadVersion();
 	private static final String PLUGIN_DESCRIPTION = "Text editor screen provider (F4) for readable files.";
 	private static final String PLUGIN_AUTHOR = "Nuclr Development Team";
 	private static final String PLUGIN_LICENSE = "Apache-2.0";
@@ -58,29 +60,19 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 			Map.entry("mjs", SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT),
 			Map.entry("ts", SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT),
 			Map.entry("tsx", SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT),
-			Map.entry("json", SyntaxConstants.SYNTAX_STYLE_JSON),
-			Map.entry("xml", SyntaxConstants.SYNTAX_STYLE_XML),
-			Map.entry("html", SyntaxConstants.SYNTAX_STYLE_HTML),
-			Map.entry("htm", SyntaxConstants.SYNTAX_STYLE_HTML),
-			Map.entry("css", SyntaxConstants.SYNTAX_STYLE_CSS),
-			Map.entry("py", SyntaxConstants.SYNTAX_STYLE_PYTHON),
-			Map.entry("sql", SyntaxConstants.SYNTAX_STYLE_SQL),
-			Map.entry("c", SyntaxConstants.SYNTAX_STYLE_C),
-			Map.entry("h", SyntaxConstants.SYNTAX_STYLE_C),
-			Map.entry("cpp", SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS),
+			Map.entry("json", SyntaxConstants.SYNTAX_STYLE_JSON), Map.entry("xml", SyntaxConstants.SYNTAX_STYLE_XML),
+			Map.entry("html", SyntaxConstants.SYNTAX_STYLE_HTML), Map.entry("htm", SyntaxConstants.SYNTAX_STYLE_HTML),
+			Map.entry("css", SyntaxConstants.SYNTAX_STYLE_CSS), Map.entry("py", SyntaxConstants.SYNTAX_STYLE_PYTHON),
+			Map.entry("sql", SyntaxConstants.SYNTAX_STYLE_SQL), Map.entry("c", SyntaxConstants.SYNTAX_STYLE_C),
+			Map.entry("h", SyntaxConstants.SYNTAX_STYLE_C), Map.entry("cpp", SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS),
 			Map.entry("hpp", SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS),
-			Map.entry("cs", SyntaxConstants.SYNTAX_STYLE_CSHARP),
-			Map.entry("go", SyntaxConstants.SYNTAX_STYLE_GO),
-			Map.entry("rs", SyntaxConstants.SYNTAX_STYLE_RUST),
-			Map.entry("php", SyntaxConstants.SYNTAX_STYLE_PHP),
-			Map.entry("yaml", SyntaxConstants.SYNTAX_STYLE_YAML),
-			Map.entry("yml", SyntaxConstants.SYNTAX_STYLE_YAML),
+			Map.entry("cs", SyntaxConstants.SYNTAX_STYLE_CSHARP), Map.entry("go", SyntaxConstants.SYNTAX_STYLE_GO),
+			Map.entry("rs", SyntaxConstants.SYNTAX_STYLE_RUST), Map.entry("php", SyntaxConstants.SYNTAX_STYLE_PHP),
+			Map.entry("yaml", SyntaxConstants.SYNTAX_STYLE_YAML), Map.entry("yml", SyntaxConstants.SYNTAX_STYLE_YAML),
 			Map.entry("md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN),
 			Map.entry("properties", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE),
-			Map.entry("ini", SyntaxConstants.SYNTAX_STYLE_INI),
-			Map.entry("toml", SyntaxConstants.SYNTAX_STYLE_YAML),
-			Map.entry("csv", SyntaxConstants.SYNTAX_STYLE_CSV),
-			Map.entry("log", SyntaxConstants.SYNTAX_STYLE_NONE),
+			Map.entry("ini", SyntaxConstants.SYNTAX_STYLE_INI), Map.entry("toml", SyntaxConstants.SYNTAX_STYLE_YAML),
+			Map.entry("csv", SyntaxConstants.SYNTAX_STYLE_CSV), Map.entry("log", SyntaxConstants.SYNTAX_STYLE_NONE),
 			Map.entry("txt", SyntaxConstants.SYNTAX_STYLE_NONE));
 
 	private final String uuid = UUID.randomUUID().toString();
@@ -88,7 +80,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	private final RSyntaxTextArea textArea = new RSyntaxTextArea();
 	private final RTextScrollPane scroll = new RTextScrollPane(textArea);
 	private NuclrPluginContext context;
-	private NuclrResourcePath currentResource;
+	private NuclrResource currentResource;
 	private boolean dirty;
 	private boolean loading;
 
@@ -142,6 +134,16 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	public String version() {
 		return PLUGIN_VERSION;
 	}
+	private static String loadVersion() {
+		try (var stream = TextEditorScreenPlugin.class.getResourceAsStream("/plugin.properties")) {
+			if (stream == null) return "unknown";
+			var props = new java.util.Properties();
+			props.load(stream);
+			return props.getProperty("version", "unknown");
+		} catch (java.io.IOException e) {
+			return "unknown";
+		}
+	}
 
 	@Override
 	public String description() {
@@ -174,40 +176,59 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	}
 
 	@Override
-	public Developer type() {
-		return Developer.Official;
-	}
-
-	@Override
 	public JComponent panel() {
 		return panel;
 	}
 
 	@Override
-	public boolean supports(NuclrResourcePath resource) {
-		if (resource == null || resource.getPath() == null) {
+	public boolean supports(NuclrResource resource) {
+		
+		var path = resource != null ? resource.getPath() : null;
+
+		if (path == null) {
 			return false;
 		}
-		Path path = resource.getPath();
+
 		try {
-			if (false == Files.isRegularFile(path) || false == Files.isReadable(path)) {
+			
+			if (resource.isFolder() || false == resource.isReadable()) {
 				return false;
 			}
-			return TextFileDetector.isTextFile(path);
+			
+			var st = System.currentTimeMillis();
+			var supported = TextFileDetector.isTextFile(resource);
+			var et = System.currentTimeMillis();
+			
+			log.info("TextFileDetector result for {}: {} ({} ms)", path, supported, (et - st));
+			
+			if (false == supported) {
+				
+				// delete the temp file if it was created for detection
+				Path tempFile = resource.getMetadata("tempPath", null);
+				
+				if (tempFile != null) {
+					try {
+						Files.deleteIfExists(tempFile);
+					} catch (IOException ignored) {
+					}
+				}
+				
+				return false;
+				
+			}
+			
+			return true;
+			
 		} catch (Exception ex) {
 			return false;
 		}
+		
 	}
 
 	@Override
-	public NuclrPluginRole role() {
-		return NuclrPluginRole.FullScreenEditor;
-	}
-
-	@Override
-	public void load(NuclrPluginContext context, boolean template) {
+	public void preinit(NuclrPluginContext context) {
 		this.context = context;
-		if (!template && context.getEventBus() != null) {
+		if (context.getEventBus() != null) {
 			context.getEventBus().subscribe(this);
 		}
 		applyUiTheme();
@@ -221,7 +242,8 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	}
 
 	@Override
-	public boolean openResource(NuclrResourcePath resource, AtomicBoolean cancelled) {
+	public boolean openResource(NuclrResource resource, AtomicBoolean cancelled) {
+		
 		if (cancelled != null && cancelled.get()) {
 			return false;
 		}
@@ -231,11 +253,15 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 
 		applyUiTheme();
 		currentResource = resource;
-		Path path = resource.getPath();
+		
+		Path path = resource.getMetadata("tempPath", resource.getPath());
+		
 		String filename = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 
 		String content;
+		
 		boolean editable = isEditable();
+		
 		try {
 			content = Files.readString(path, StandardCharsets.UTF_8);
 		} catch (IOException ex) {
@@ -247,12 +273,20 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 		textArea.setEditable(editable);
 		textArea.setCaretPosition(0);
 		dirty = false;
+
+		this.context.getEventBus().emit("main.window.title", Map.of("title", path.toString()), null);
 		
-		this.context.getEventBus().emit("main.window.title", Map.of("title", path.toString()));
-		
+		// Remove temp file
+		if (resource.getMetadata("tempPath", null) != null) {
+			try {
+				Files.deleteIfExists(path);
+			} catch (IOException ignored) {
+			}
+		}
+
 		return true;
 	}
-	
+
 	public boolean isEditable() {
 		return true;
 	}
@@ -264,13 +298,8 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	}
 
 	@Override
-	public NuclrResourcePath getCurrentResource() {
+	public NuclrResource getCurrentResource() {
 		return currentResource;
-	}
-
-	@Override
-	public int priority() {
-		return 10;
 	}
 
 	@Override
@@ -286,14 +315,6 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	@Override
 	public boolean isMessageSupported(String type) {
 		return TOGGLE_WRAP_ACTION.equals(type);
-	}
-
-	@Override
-	public void handleMessage(Object source, String type, Map<String, Object> event) {
-		if (!TOGGLE_WRAP_ACTION.equals(type) || !isFocused()) {
-			return;
-		}
-		toggleWrap();
 	}
 
 	@Override
@@ -389,7 +410,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 		scroll.getViewport().setBackground(background);
 		scroll.setBackground(background);
 		panel.setBackground(background);
-		
+
 	}
 
 	private void registerFullscreenCloseShortcut() {
@@ -451,8 +472,7 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 	private static Color blend(Color base, Color overlay, float overlayWeight) {
 		float clamped = Math.max(0f, Math.min(1f, overlayWeight));
 		float baseWeight = 1f - clamped;
-		return new Color(
-				Math.round(base.getRed() * baseWeight + overlay.getRed() * clamped),
+		return new Color(Math.round(base.getRed() * baseWeight + overlay.getRed() * clamped),
 				Math.round(base.getGreen() * baseWeight + overlay.getGreen() * clamped),
 				Math.round(base.getBlue() * baseWeight + overlay.getBlue() * clamped));
 	}
@@ -480,4 +500,35 @@ public class TextEditorScreenPlugin implements NuclrPlugin, NuclrEventListener {
 		}
 		return filename.substring(dot + 1);
 	}
+
+	@Override
+	public Developer developer() {
+		return Developer.Official;
+	}
+
+	@Override
+	public NuclrPluginContext getContext() {
+		return this.context;
+	}
+
+	@Override
+	public void init() {
+
+	}
+
+	@Override
+	public void handleMessage(Object source, String type, Map<String, Object> eventData, NuclrPluginCallback callback) {
+
+		if (!TOGGLE_WRAP_ACTION.equals(type) || !isFocused()) {
+			return;
+		}
+		toggleWrap();
+
+	}
+
+	@Override
+	public Role role() {
+		return Role.Editor;
+	}
+
 }

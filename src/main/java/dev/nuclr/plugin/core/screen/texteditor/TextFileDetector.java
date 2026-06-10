@@ -8,6 +8,9 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
+
+import dev.nuclr.platform.plugin.NuclrResource;
 
 /**
  * Utility for detecting whether a file contains text or binary content.
@@ -27,23 +30,49 @@ public final class TextFileDetector {
      * Returns true if the file is likely a text file.
      * Combines MIME probing, byte analysis, and UTF-8 decoding.
      */
-    public static boolean isTextFile(Path path) throws IOException {
-        if (!Files.isRegularFile(path)) {
+    public static boolean isTextFile(NuclrResource resource) throws IOException {
+    	
+        if (resource.isFolder()) {
             return false;
         }
-        if (Files.size(path) == 0) {
+        if (resource.getLength() == 0L) {
             return true; // empty files are trivially text
         }
+        
+    		Path tempFile = null;
+    	
+        try (var is = resource.openInputStream()) {
+        	
+        		if (false == Files.isRegularFile(resource.getPath())) {
+        			
+        			/** Create a temp file to probe the MIME type, since NuclrResource may not be a Path */
+        			tempFile = Files.createTempFile("mimeprobe." + UUID.randomUUID().toString(), null);
+        			Files.copy(is, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        			
+        			resource.getMetadata().put("tempPath", tempFile);
+        			
+        		} else {
+        			tempFile = resource.getPath();
+        		}
 
-        // Strategy 1: MIME type hint from the OS / file extension
-        Boolean mimeResult = checkMimeType(path);
-        if (mimeResult != null) {
-            return mimeResult;
+	        // Strategy 1: MIME type hint from the OS / file extension
+	        Boolean mimeResult = checkMimeType(tempFile);
+	        if (mimeResult != null) {
+	            return mimeResult;
+	        }
+	
+	        // Strategy 2: byte-level heuristic on a sample
+	        byte[] sample = readSample(tempFile);
+	        
+	        return isSampleText(sample);
+	        
+        } catch (Exception ignored) {
+        	// fall through to heuristic
+        } finally {
+        	
         }
-
-        // Strategy 2: byte-level heuristic on a sample
-        byte[] sample = readSample(path);
-        return isSampleText(sample);
+        
+        return false;
     }
 
     /**
@@ -51,7 +80,9 @@ public final class TextFileDetector {
      * Returns true/false if conclusive, null if unknown.
      */
     private static Boolean checkMimeType(Path path) {
+    	
         try {
+        	
             String mime = Files.probeContentType(path);
             if (mime != null) {
                 if (mime.startsWith("text/")) return true;
@@ -66,9 +97,9 @@ public final class TextFileDetector {
                     return true;
                 }
             }
-        } catch (IOException ignored) {
+        } catch (Exception ignored) {
             // fall through to heuristic
-        }
+		}
         return null;
     }
 
