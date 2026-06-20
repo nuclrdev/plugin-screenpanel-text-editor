@@ -3,7 +3,6 @@ package dev.nuclr.plugin.core.screen.texteditor;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
-import java.awt.GraphicsEnvironment;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,7 +41,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
-	private static final String PREFERRED_EDITOR_FONT = "JetBrains Mono";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Text Editor";
@@ -478,19 +476,10 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	private static Font editorFont(Font baseFont) {
-		Font fallback = baseFont != null ? baseFont : new Font(Font.MONOSPACED, Font.PLAIN, 13);
-		int size = Math.max(11, fallback.getSize());
-		String family = hasFontFamily(PREFERRED_EDITOR_FONT) ? PREFERRED_EDITOR_FONT : Font.MONOSPACED;
-		return new Font(family, Font.PLAIN, size);
-	}
-
-	private static boolean hasFontFamily(String family) {
-		for (String name : GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()) {
-			if (family.equalsIgnoreCase(name)) {
-				return true;
-			}
-		}
-		return false;
+		// Use Commander's configured UI font (JetBrains Mono at the user's font size,
+		// stored in UIManager "defaultFont"). Falling back to monospaced only when the
+		// look-and-feel has no default font.
+		return baseFont != null ? baseFont : new Font(Font.MONOSPACED, Font.PLAIN, 13);
 	}
 
 	private static String extension(String filename) {
