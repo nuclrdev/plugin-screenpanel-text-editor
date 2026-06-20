@@ -16,6 +16,18 @@ public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 		return Role.Viewer;
 	}
 
+	/** In the read-only viewer, F2 toggles word wrap rather than saving. */
+	@Override
+	protected void onPrimaryKey() {
+		toggleWrap();
+	}
+
+	/** The viewer opens unwrapped and lets the user toggle wrap with F2. */
+	@Override
+	protected boolean wrapByDefault() {
+		return false;
+	}
+
 	@Override
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
 

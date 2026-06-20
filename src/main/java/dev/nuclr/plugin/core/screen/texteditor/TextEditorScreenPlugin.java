@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.KeyStroke;
 import javax.swing.UIManager;
@@ -41,6 +42,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
+	private static final String SAVE_ACTION = "plugin.text.editor.save";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Text Editor";
@@ -79,6 +81,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private final RTextScrollPane scroll = new RTextScrollPane(textArea);
 	private NuclrPluginContext context;
 	private NuclrResource currentResource;
+	private String titlePath;
 	private boolean dirty;
 	private boolean loading;
 
@@ -98,7 +101,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		attachDirtyTracking();
-		registerWrapShortcut();
+		registerPrimaryShortcut();
 		registerFullscreenCloseShortcut();
 		applyUiTheme();
 	}
@@ -269,10 +272,13 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 		setText(filename, content);
 		textArea.setEditable(editable);
+		textArea.setLineWrap(wrapByDefault());
+		textArea.setWrapStyleWord(wrapByDefault());
 		textArea.setCaretPosition(0);
 		dirty = false;
 
-		this.context.getEventBus().emit("main.window.title", Map.of("title", path.toString()), null);
+		titlePath = path.toString();
+		updateTitle();
 		
 		// Remove temp file
 		if (resource.getMetadata("tempPath", null) != null) {
@@ -330,6 +336,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		}
 		Files.writeString(currentResource.getPath(), textArea.getText(), StandardCharsets.UTF_8);
 		dirty = false;
+		updateTitle();
 		return true;
 	}
 
@@ -371,9 +378,20 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	private void markDirty() {
-		if (!loading && textArea.isEditable()) {
-			dirty = true;
+		if (loading || !textArea.isEditable() || dirty) {
+			return;
 		}
+		dirty = true;
+		updateTitle();
+	}
+
+	/** Emits the window title, prefixing a {@code *} marker while there are unsaved changes. */
+	private void updateTitle() {
+		if (context == null || context.getEventBus() == null || titlePath == null) {
+			return;
+		}
+		String title = (dirty ? "* " : "") + titlePath;
+		context.getEventBus().emit("main.window.title", Map.of("title", title), null);
 	}
 
 	private void applyUiTheme() {
@@ -415,9 +433,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		var closeAction = new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				if (context != null && context.getEventBus() != null) {
-					context.getEventBus().emit(CLOSE_FULLSCREEN_ACTION);
-				}
+				requestClose();
 			}
 		};
 		var escape = KeyStroke.getKeyStroke("ESCAPE");
@@ -430,20 +446,75 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		bindFullscreenClose(textArea, f3, closeAction);
 	}
 
-	private void registerWrapShortcut() {
-		var wrapAction = new AbstractAction() {
+	/**
+	 * Handles a close request (F3/Escape). When there are unsaved edits the user is
+	 * offered Save / Don't Save / Cancel; with no changes the editor closes silently.
+	 */
+	private void requestClose() {
+		if (dirty && textArea.isEditable()) {
+			int choice = JOptionPane.showConfirmDialog(panel, "Save changes before closing?", "Unsaved changes",
+					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+			if (choice == JOptionPane.YES_OPTION) {
+				try {
+					if (!save()) {
+						JOptionPane.showMessageDialog(panel, "Could not save the file.", "Save failed",
+								JOptionPane.ERROR_MESSAGE);
+						return;
+					}
+				} catch (Exception ex) {
+					JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
+							JOptionPane.ERROR_MESSAGE);
+					return;
+				}
+			} else if (choice != JOptionPane.NO_OPTION) {
+				// Cancel or dialog dismissed: stay in the editor.
+				return;
+			}
+		}
+		emitClose();
+	}
+
+	private void emitClose() {
+		if (context != null && context.getEventBus() != null) {
+			context.getEventBus().emit(CLOSE_FULLSCREEN_ACTION);
+		}
+	}
+
+	private void registerPrimaryShortcut() {
+		var primaryAction = new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				toggleWrap();
+				onPrimaryKey();
 			}
 		};
 		var f2 = KeyStroke.getKeyStroke("F2");
-		bindAction(panel, f2, TOGGLE_WRAP_ACTION, wrapAction);
-		bindAction(scroll, f2, TOGGLE_WRAP_ACTION, wrapAction);
-		bindAction(textArea, f2, TOGGLE_WRAP_ACTION, wrapAction);
+		bindAction(panel, f2, SAVE_ACTION, primaryAction);
+		bindAction(scroll, f2, SAVE_ACTION, primaryAction);
+		bindAction(textArea, f2, SAVE_ACTION, primaryAction);
 	}
 
-	private void toggleWrap() {
+	/**
+	 * Behaviour of the F2 key. In the editor this saves the file; the read-only
+	 * viewer overrides it to toggle word wrap instead.
+	 */
+	protected void onPrimaryKey() {
+		try {
+			save();
+		} catch (Exception ex) {
+			JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
+					JOptionPane.ERROR_MESSAGE);
+		}
+	}
+
+	/**
+	 * Default word-wrap state for a freshly opened file. The editor always wraps
+	 * (there is no wrap-off mode); the viewer starts unwrapped and toggles via F2.
+	 */
+	protected boolean wrapByDefault() {
+		return true;
+	}
+
+	protected void toggleWrap() {
 		textArea.setLineWrap(!textArea.getLineWrap());
 		textArea.setWrapStyleWord(textArea.getLineWrap());
 		textArea.revalidate();
