@@ -10,6 +10,8 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -59,6 +63,7 @@ import lombok.extern.slf4j.Slf4j;
 public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEventListener {
 
 	private static final String CLOSE_FULLSCREEN_ACTION = "plugin.fullscreen.close";
+	private static final String REQUEST_CLOSE_ACTION = "plugin.text.editor.close";
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
 	private static final String SAVE_ACTION = "plugin.text.editor.save";
 
@@ -251,7 +256,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	@Override
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
 		var f2 = new NuclrMenuResource("Save", "F2", SAVE_ACTION);
-		var f3 = new NuclrMenuResource("Quit", "F3", CLOSE_FULLSCREEN_ACTION);
+		var f3 = new NuclrMenuResource("Quit", "F3", REQUEST_CLOSE_ACTION);
 
 		return List.of(f2, f3);
 	}
@@ -360,7 +365,9 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	@Override
 	public boolean isMessageSupported(String type) {
-		return (isEditable() && SAVE_ACTION.equals(type)) || TOGGLE_WRAP_ACTION.equals(type);
+		return (isEditable() && SAVE_ACTION.equals(type))
+				|| REQUEST_CLOSE_ACTION.equals(type)
+				|| TOGGLE_WRAP_ACTION.equals(type);
 	}
 
 	@Override
@@ -606,8 +613,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	 */
 	private void requestClose() {
 		if (dirty && textArea.isEditable()) {
-			int choice = JOptionPane.showConfirmDialog(panel, "Save changes before closing?", "Unsaved changes",
-					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+			int choice = showUnsavedChangesDialog();
 			if (choice == JOptionPane.YES_OPTION) {
 				if (!isSaveSuccess(saveWithUserFeedback(false))) {
 					return;
@@ -620,6 +626,84 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			}
 		}
 		emitClose();
+	}
+
+	private int showUnsavedChangesDialog() {
+		var result = new int[] { JOptionPane.CANCEL_OPTION };
+		var save = new JButton("Save");
+		var dontSave = new JButton("Don't Save");
+		var cancel = new JButton("Cancel");
+		var buttons = new JButton[] { save, dontSave, cancel };
+
+		var pane = new JOptionPane("Save changes before closing?", JOptionPane.WARNING_MESSAGE,
+				JOptionPane.YES_NO_CANCEL_OPTION, null, buttons, save);
+
+		save.addActionListener(e -> {
+			result[0] = JOptionPane.YES_OPTION;
+			pane.setValue(save);
+		});
+		dontSave.addActionListener(e -> {
+			result[0] = JOptionPane.NO_OPTION;
+			pane.setValue(dontSave);
+		});
+		cancel.addActionListener(e -> {
+			result[0] = JOptionPane.CANCEL_OPTION;
+			pane.setValue(cancel);
+		});
+
+		JDialog dialog = pane.createDialog(panel, "Unsaved changes");
+		installDialogButtonTraversal(dialog, buttons);
+		SwingUtilities.invokeLater(() -> focusDialogButton(save));
+		dialog.setVisible(true);
+		dialog.dispose();
+
+		return result[0];
+	}
+
+	private static void installDialogButtonTraversal(JDialog dialog, JButton[] buttons) {
+		for (int i = 0; i < buttons.length; i++) {
+			JButton button = buttons[i];
+			int previous = (i + buttons.length - 1) % buttons.length;
+			int next = (i + 1) % buttons.length;
+
+			bindFocusMove(button, "LEFT", buttons[previous]);
+			bindFocusMove(button, "UP", buttons[previous]);
+			bindFocusMove(button, "RIGHT", buttons[next]);
+			bindFocusMove(button, "DOWN", buttons[next]);
+			button.addFocusListener(new FocusAdapter() {
+				@Override
+				public void focusGained(FocusEvent e) {
+					button.getRootPane().setDefaultButton(button);
+				}
+			});
+		}
+
+		dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("ESCAPE"),
+				"cancel");
+		dialog.getRootPane().getActionMap().put("cancel", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				buttons[buttons.length - 1].doClick();
+			}
+		});
+	}
+
+	private static void bindFocusMove(JButton source, String keyStroke, JButton target) {
+		String actionKey = "focus." + keyStroke.toLowerCase();
+		source.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(keyStroke), actionKey);
+		source.getActionMap().put(actionKey, new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				focusDialogButton(target);
+			}
+		});
+	}
+
+	private static void focusDialogButton(JButton button) {
+		button.requestFocusInWindow();
+		if (button.getRootPane() != null) {
+			button.getRootPane().setDefaultButton(button);
+		}
 	}
 
 	private void emitClose() {
@@ -737,6 +821,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			return;
 		}
 
+		if (REQUEST_CLOSE_ACTION.equals(type)) {
+			requestClose();
+			return;
+		}
+
 		if (TOGGLE_WRAP_ACTION.equals(type)) {
 			toggleWrap();
 		}
@@ -753,6 +842,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 		if (SAVE_ACTION.equals(actionType) && isEditable()) {
 			saveWithUserFeedback();
+			return;
+		}
+
+		if (REQUEST_CLOSE_ACTION.equals(actionType)) {
+			requestClose();
 			return;
 		}
 
