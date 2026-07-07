@@ -1,24 +1,40 @@
 package dev.nuclr.plugin.core.screen.texteditor;
 
 import java.awt.BorderLayout;
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Point;
+import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.KeyStroke;
+import javax.swing.Popup;
+import javax.swing.PopupFactory;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
@@ -31,7 +47,9 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.platform.NuclrThemeScheme;
 import dev.nuclr.platform.events.NuclrEventListener;
+import dev.nuclr.platform.plugin.BaseNuclrPlugin;
 import dev.nuclr.platform.plugin.FullscreenNuclrPlugin;
+import dev.nuclr.platform.plugin.NuclrMenuResource;
 import dev.nuclr.platform.plugin.NuclrPluginCallback;
 import dev.nuclr.platform.plugin.NuclrPluginContext;
 import dev.nuclr.platform.plugin.NuclrResource;
@@ -82,8 +100,12 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private NuclrPluginContext context;
 	private NuclrResource currentResource;
 	private String titlePath;
+	private FileStamp lastKnownFileStamp;
 	private boolean dirty;
 	private boolean loading;
+	private boolean discardOnClose;
+	private Popup saveToast;
+	private Timer saveToastTimer;
 
 	public TextEditorScreenPlugin() {
 		textArea.setCodeFoldingEnabled(true);
@@ -227,6 +249,14 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	@Override
+	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
+		var f2 = new NuclrMenuResource("Save", "F2", SAVE_ACTION);
+		var f3 = new NuclrMenuResource("Quit", "F3", CLOSE_FULLSCREEN_ACTION);
+
+		return List.of(f2, f3);
+	}
+
+	@Override
 	public void preinit(NuclrPluginContext context) {
 		this.context = context;
 		if (context.getEventBus() != null) {
@@ -254,6 +284,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 		applyUiTheme();
 		currentResource = resource;
+		discardOnClose = false;
 		
 		Path path = resource.getMetadata("tempPath", resource.getPath());
 		
@@ -276,6 +307,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		textArea.setWrapStyleWord(wrapByDefault());
 		textArea.setCaretPosition(0);
 		dirty = false;
+		lastKnownFileStamp = readFileStampQuietly(resource.getPath());
 
 		titlePath = path.toString();
 		updateTitle();
@@ -297,8 +329,18 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	@Override
 	public void closeResource() {
+		if (dirty && textArea.isEditable() && !discardOnClose) {
+			SaveResult result = saveWithUserFeedback(false);
+			if (!isSaveSuccess(result)) {
+				log.warn("Closing text editor without saving {}", titlePath);
+			}
+		}
+		hideSaveToast();
 		currentResource = null;
 		dirty = false;
+		discardOnClose = false;
+		lastKnownFileStamp = null;
+		titlePath = null;
 	}
 
 	@Override
@@ -318,7 +360,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	@Override
 	public boolean isMessageSupported(String type) {
-		return TOGGLE_WRAP_ACTION.equals(type);
+		return (isEditable() && SAVE_ACTION.equals(type)) || TOGGLE_WRAP_ACTION.equals(type);
 	}
 
 	@Override
@@ -331,13 +373,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	public boolean save() throws Exception {
-		if (currentResource == null || currentResource.getPath() == null || !textArea.isEditable()) {
-			return false;
-		}
-		Files.writeString(currentResource.getPath(), textArea.getText(), StandardCharsets.UTF_8);
-		dirty = false;
-		updateTitle();
-		return true;
+		return isSaveSuccess(saveInternal(true));
 	}
 
 	private void setText(String filename, String text) {
@@ -383,6 +419,124 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		}
 		dirty = true;
 		updateTitle();
+	}
+
+	private SaveResult saveWithUserFeedback() {
+		return saveWithUserFeedback(true);
+	}
+
+	private SaveResult saveWithUserFeedback(boolean showSuccessNotification) {
+		try {
+			SaveResult result = saveInternal(true);
+			if (result == SaveResult.UNAVAILABLE) {
+				JOptionPane.showMessageDialog(panel, "Could not save the file.", "Save failed",
+						JOptionPane.ERROR_MESSAGE);
+			} else if (showSuccessNotification && isSaveSuccess(result)) {
+				showSaveToast(result == SaveResult.UNCHANGED ? "Already saved" : "Saved");
+			}
+			return result;
+		} catch (Exception ex) {
+			JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
+					JOptionPane.ERROR_MESSAGE);
+			return SaveResult.FAILED;
+		}
+	}
+
+	private SaveResult saveInternal(boolean askBeforeOverwrite) throws Exception {
+		if (currentResource == null || currentResource.getPath() == null || !textArea.isEditable()) {
+			return SaveResult.UNAVAILABLE;
+		}
+
+		Path path = currentResource.getPath();
+		FileStamp currentStamp = readFileStamp(path);
+
+		if (!dirty && !changedExternally(currentStamp)) {
+			return SaveResult.UNCHANGED;
+		}
+
+		if (askBeforeOverwrite && changedExternally(currentStamp) && !confirmOverwriteExternalChanges()) {
+			return SaveResult.CANCELLED;
+		}
+
+		Files.writeString(path, textArea.getText(), StandardCharsets.UTF_8);
+		lastKnownFileStamp = readFileStamp(path);
+		dirty = false;
+		updateTitle();
+		return SaveResult.SAVED;
+	}
+
+	private static boolean isSaveSuccess(SaveResult result) {
+		return result == SaveResult.SAVED || result == SaveResult.UNCHANGED;
+	}
+
+	private boolean changedExternally(FileStamp currentStamp) {
+		return lastKnownFileStamp != null && !lastKnownFileStamp.equals(currentStamp);
+	}
+
+	private boolean confirmOverwriteExternalChanges() {
+		int choice = JOptionPane.showConfirmDialog(panel,
+				"The file has changed on disk since it was opened or last saved.\nOverwrite those changes?",
+				"File modified elsewhere", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+		return choice == JOptionPane.YES_OPTION;
+	}
+
+	private static FileStamp readFileStamp(Path path) throws IOException {
+		if (path == null || !Files.exists(path)) {
+			return null;
+		}
+		BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
+		return new FileStamp(attrs.lastModifiedTime(), attrs.size());
+	}
+
+	private static FileStamp readFileStampQuietly(Path path) {
+		try {
+			return readFileStamp(path);
+		} catch (IOException ignored) {
+			return null;
+		}
+	}
+
+	private void showSaveToast(String message) {
+		if (!SwingUtilities.isEventDispatchThread()) {
+			SwingUtilities.invokeLater(() -> showSaveToast(message));
+			return;
+		}
+		if (!panel.isShowing()) {
+			return;
+		}
+
+		hideSaveToast();
+
+		NuclrThemeScheme themeScheme = context != null ? context.getTheme() : null;
+		Color accent = themeColor(themeScheme, "Table.selectionBackground", new Color(0x4C8BFF));
+		Color background = blend(textArea.getBackground(), accent, 0.30f);
+		Color foreground = themeColor(themeScheme, "Panel.foreground", textArea.getForeground());
+		Font labelFont = editorFont(themeScheme != null ? themeScheme.defaultFont() : UIManager.getFont("Label.font"))
+				.deriveFont(Font.BOLD);
+
+		var toast = new SaveToast(message, background, foreground, accent, labelFont);
+		Dimension size = toast.getPreferredSize();
+		Point screen = panel.getLocationOnScreen();
+		int x = screen.x + Math.max(12, panel.getWidth() - size.width - 24);
+		int y = screen.y + Math.max(12, panel.getHeight() - size.height - 24);
+
+		saveToast = PopupFactory.getSharedInstance().getPopup(panel, toast, x, y);
+		saveToast.show();
+
+		saveToastTimer = new Timer(1400, e -> hideSaveToast());
+		saveToastTimer.setRepeats(false);
+		saveToastTimer.start();
+	}
+
+	private void hideSaveToast() {
+		if (saveToastTimer != null) {
+			saveToastTimer.stop();
+			saveToastTimer = null;
+		}
+		if (saveToast != null) {
+			saveToast.hide();
+			saveToast = null;
+		}
 	}
 
 	/** Emits the window title, prefixing a {@code *} marker while there are unsaved changes. */
@@ -455,20 +609,14 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			int choice = JOptionPane.showConfirmDialog(panel, "Save changes before closing?", "Unsaved changes",
 					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
 			if (choice == JOptionPane.YES_OPTION) {
-				try {
-					if (!save()) {
-						JOptionPane.showMessageDialog(panel, "Could not save the file.", "Save failed",
-								JOptionPane.ERROR_MESSAGE);
-						return;
-					}
-				} catch (Exception ex) {
-					JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
-							JOptionPane.ERROR_MESSAGE);
+				if (!isSaveSuccess(saveWithUserFeedback(false))) {
 					return;
 				}
 			} else if (choice != JOptionPane.NO_OPTION) {
 				// Cancel or dialog dismissed: stay in the editor.
 				return;
+			} else {
+				discardOnClose = true;
 			}
 		}
 		emitClose();
@@ -488,9 +636,15 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			}
 		};
 		var f2 = KeyStroke.getKeyStroke("F2");
+		var ctrlS = KeyStroke.getKeyStroke("ctrl S");
 		bindAction(panel, f2, SAVE_ACTION, primaryAction);
 		bindAction(scroll, f2, SAVE_ACTION, primaryAction);
 		bindAction(textArea, f2, SAVE_ACTION, primaryAction);
+		if (isEditable()) {
+			bindAction(panel, ctrlS, SAVE_ACTION, primaryAction);
+			bindAction(scroll, ctrlS, SAVE_ACTION, primaryAction);
+			bindAction(textArea, ctrlS, SAVE_ACTION, primaryAction);
+		}
 	}
 
 	/**
@@ -498,12 +652,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	 * viewer overrides it to toggle word wrap instead.
 	 */
 	protected void onPrimaryKey() {
-		try {
-			save();
-		} catch (Exception ex) {
-			JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
-					JOptionPane.ERROR_MESSAGE);
-		}
+		saveWithUserFeedback();
 	}
 
 	/**
@@ -579,16 +728,129 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	@Override
 	public void handleMessage(Object source, String type, Map<String, Object> eventData, NuclrPluginCallback callback) {
 
-		if (!TOGGLE_WRAP_ACTION.equals(type) || !isFocused()) {
+		if (!isFocused() && currentResource == null) {
 			return;
 		}
-		toggleWrap();
+
+		if (SAVE_ACTION.equals(type) && isEditable()) {
+			saveWithUserFeedback();
+			return;
+		}
+
+		if (TOGGLE_WRAP_ACTION.equals(type)) {
+			toggleWrap();
+		}
+
+	}
+
+	@Override
+	public void act(BaseNuclrPlugin other, String actionType, List<NuclrResource> selectedResources,
+			NuclrResource focusedResource, Map<String, Object> data, NuclrPluginCallback callback) {
+
+		if (!isFocused() && currentResource == null) {
+			return;
+		}
+
+		if (SAVE_ACTION.equals(actionType) && isEditable()) {
+			saveWithUserFeedback();
+			return;
+		}
+
+		if (TOGGLE_WRAP_ACTION.equals(actionType)) {
+			toggleWrap();
+		}
 
 	}
 
 	@Override
 	public Role role() {
 		return Role.Editor;
+	}
+
+	private enum SaveResult {
+		SAVED,
+		UNCHANGED,
+		CANCELLED,
+		FAILED,
+		UNAVAILABLE
+	}
+
+	private record FileStamp(FileTime lastModifiedTime, long size) {
+	}
+
+	private static final class SaveToast extends JPanel {
+		private static final int ARC = 16;
+		private final Color background;
+		private final Color foreground;
+		private final Color accent;
+
+		SaveToast(String message, Color background, Color foreground, Color accent, Font font) {
+			this.background = background;
+			this.foreground = foreground;
+			this.accent = accent;
+			setOpaque(false);
+			setLayout(new BorderLayout(10, 0));
+			setBorder(new EmptyBorder(10, 14, 10, 16));
+
+			var label = new JLabel(message);
+			label.setForeground(foreground);
+			label.setFont(font);
+
+			add(new SaveMark(accent, foreground), BorderLayout.WEST);
+			add(label, BorderLayout.CENTER);
+		}
+
+		@Override
+		public Dimension getPreferredSize() {
+			Dimension size = super.getPreferredSize();
+			return new Dimension(Math.max(118, size.width), Math.max(44, size.height));
+		}
+
+		@Override
+		protected void paintComponent(Graphics g) {
+			Graphics2D g2 = (Graphics2D) g.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setColor(background);
+			g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, ARC, ARC);
+			g2.setColor(accent);
+			g2.setStroke(new BasicStroke(1.5f));
+			g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, ARC, ARC);
+			g2.setColor(new Color(foreground.getRed(), foreground.getGreen(), foreground.getBlue(), 36));
+			g2.drawLine(14, getHeight() - 1, getWidth() - 15, getHeight() - 1);
+			g2.dispose();
+			super.paintComponent(g);
+		}
+	}
+
+	private static final class SaveMark extends JComponent {
+		private final Color accent;
+		private final Color foreground;
+
+		SaveMark(Color accent, Color foreground) {
+			this.accent = accent;
+			this.foreground = foreground;
+			setPreferredSize(new Dimension(22, 22));
+			setMinimumSize(new Dimension(22, 22));
+			setMaximumSize(new Dimension(22, 22));
+			setBorder(BorderFactory.createEmptyBorder());
+		}
+
+		@Override
+		protected void paintComponent(Graphics g) {
+			Graphics2D g2 = (Graphics2D) g.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			int size = Math.min(getWidth(), getHeight()) - 2;
+			int x = (getWidth() - size) / 2;
+			int y = (getHeight() - size) / 2;
+
+			g2.setColor(accent);
+			g2.fillOval(x, y, size, size);
+			g2.setColor(foreground);
+			g2.setStroke(new BasicStroke(2.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.drawLine(x + 6, y + 11, x + 9, y + 14);
+			g2.drawLine(x + 9, y + 14, x + 15, y + 7);
+			g2.dispose();
+		}
 	}
 
 }
