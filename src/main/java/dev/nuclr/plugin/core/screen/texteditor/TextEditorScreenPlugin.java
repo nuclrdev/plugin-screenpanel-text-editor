@@ -3,12 +3,18 @@ package dev.nuclr.plugin.core.screen.texteditor;
 import java.awt.BorderLayout;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Dialog;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.Point;
 import java.awt.RenderingHints;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -20,13 +26,18 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -35,9 +46,11 @@ import javax.swing.JPanel;
 import javax.swing.KeyStroke;
 import javax.swing.Popup;
 import javax.swing.PopupFactory;
+import javax.swing.JRadioButton;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.JTextField;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -47,6 +60,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
+import org.fife.ui.rsyntaxtextarea.DocumentRange;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.platform.NuclrThemeScheme;
@@ -66,6 +80,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private static final String REQUEST_CLOSE_ACTION = "plugin.text.editor.close";
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
 	private static final String SAVE_ACTION = "plugin.text.editor.save";
+	private static final String FIND_ACTION = "plugin.text.editor.search";
 
 	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
 	private static final String PLUGIN_NAME = "Text Editor";
@@ -111,6 +126,15 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private boolean discardOnClose;
 	private Popup saveToast;
 	private Timer saveToastTimer;
+	private JDialog searchDialog;
+	private JTextField searchField;
+	private JRadioButton searchTextMode;
+	private JRadioButton searchHexMode;
+	private JCheckBox searchCaseSensitive;
+	private JCheckBox searchRegex;
+	private JCheckBox searchWholeWords;
+	private JCheckBox searchFuzzy;
+	private JLabel searchStatus;
 
 	public TextEditorScreenPlugin() {
 		textArea.setCodeFoldingEnabled(true);
@@ -129,6 +153,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		panel.add(scroll, BorderLayout.CENTER);
 		attachDirtyTracking();
 		registerPrimaryShortcut();
+		registerFindShortcut();
 		registerFullscreenCloseShortcut();
 		applyUiTheme();
 	}
@@ -257,8 +282,9 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
 		var f2 = new NuclrMenuResource("Save", "F2", SAVE_ACTION);
 		var f3 = new NuclrMenuResource("Quit", "F3", REQUEST_CLOSE_ACTION);
+		var f7 = new NuclrMenuResource("Search", "F7", FIND_ACTION);
 
-		return List.of(f2, f3);
+		return List.of(f2, f3, f7);
 	}
 
 	@Override
@@ -341,6 +367,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			}
 		}
 		hideSaveToast();
+		closeSearchDialog();
 		currentResource = null;
 		dirty = false;
 		discardOnClose = false;
@@ -367,6 +394,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	public boolean isMessageSupported(String type) {
 		return (isEditable() && SAVE_ACTION.equals(type))
 				|| REQUEST_CLOSE_ACTION.equals(type)
+				|| FIND_ACTION.equals(type)
 				|| TOGGLE_WRAP_ACTION.equals(type);
 	}
 
@@ -384,6 +412,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	private void setText(String filename, String text) {
+		clearSearchHighlight();
 		String ext = extension(filename).toLowerCase();
 		String style = EXTENSION_TO_SYNTAX.getOrDefault(ext, SyntaxConstants.SYNTAX_STYLE_NONE);
 
@@ -731,6 +760,623 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		}
 	}
 
+	private void registerFindShortcut() {
+		var findAction = new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				showSearchDialog();
+			}
+		};
+		var f7 = KeyStroke.getKeyStroke("F7");
+		var ctrlF = KeyStroke.getKeyStroke("ctrl F");
+		bindAction(panel, f7, FIND_ACTION, findAction);
+		bindAction(scroll, f7, FIND_ACTION, findAction);
+		bindAction(textArea, f7, FIND_ACTION, findAction);
+		bindAction(panel, ctrlF, FIND_ACTION, findAction);
+		bindAction(scroll, ctrlF, FIND_ACTION, findAction);
+		bindAction(textArea, ctrlF, FIND_ACTION, findAction);
+	}
+
+	private void showSearchDialog() {
+		if (!SwingUtilities.isEventDispatchThread()) {
+			SwingUtilities.invokeLater(this::showSearchDialog);
+			return;
+		}
+		if (currentResource == null) {
+			return;
+		}
+		if (searchDialog == null || !searchDialog.isDisplayable()) {
+			createSearchDialog();
+		}
+
+		seedSearchFieldFromSelection();
+		setSearchStatus(" ", false);
+		updateSearchControlState();
+
+		if (!searchDialog.isShowing()) {
+			searchDialog.pack();
+			searchDialog.setLocationRelativeTo(panel);
+			searchDialog.setVisible(true);
+		}
+		searchDialog.toFront();
+		SwingUtilities.invokeLater(() -> {
+			searchField.requestFocusInWindow();
+			searchField.selectAll();
+		});
+	}
+
+	private void createSearchDialog() {
+		Window owner = SwingUtilities.getWindowAncestor(panel);
+		searchDialog = new JDialog(owner, "Search", Dialog.ModalityType.MODELESS);
+		searchDialog.setDefaultCloseOperation(JDialog.HIDE_ON_CLOSE);
+
+		searchField = new JTextField(34);
+		searchTextMode = new JRadioButton("Text", true);
+		searchHexMode = new JRadioButton("Hex");
+		var modes = new ButtonGroup();
+		modes.add(searchTextMode);
+		modes.add(searchHexMode);
+
+		searchCaseSensitive = new JCheckBox("Case sensitive");
+		searchRegex = new JCheckBox("Regular expressions");
+		searchWholeWords = new JCheckBox("Whole words");
+		searchFuzzy = new JCheckBox("Fuzzy search");
+		searchStatus = new JLabel(" ");
+
+		var previous = new JButton("Find previous");
+		var next = new JButton("Find next");
+		var cancel = new JButton("Cancel");
+
+		previous.addActionListener(e -> runSearch(false));
+		next.addActionListener(e -> runSearch(true));
+		cancel.addActionListener(e -> hideSearchDialog());
+		searchRegex.addActionListener(e -> {
+			if (searchRegex.isSelected()) {
+				searchFuzzy.setSelected(false);
+			}
+			updateSearchControlState();
+		});
+		searchFuzzy.addActionListener(e -> {
+			if (searchFuzzy.isSelected()) {
+				searchRegex.setSelected(false);
+			}
+			updateSearchControlState();
+		});
+		searchTextMode.addActionListener(e -> updateSearchControlState());
+		searchHexMode.addActionListener(e -> updateSearchControlState());
+
+		var main = new JPanel(new GridBagLayout());
+		main.setBorder(new EmptyBorder(12, 12, 8, 12));
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.insets = new Insets(4, 4, 4, 4);
+		gbc.anchor = GridBagConstraints.WEST;
+
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		main.add(new JLabel("Search for"), gbc);
+
+		gbc.gridx = 1;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		main.add(searchField, gbc);
+
+		var modePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		modePanel.add(searchTextMode);
+		modePanel.add(searchHexMode);
+		gbc.gridx = 2;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		main.add(modePanel, gbc);
+
+		var options = new JPanel(new GridBagLayout());
+		GridBagConstraints ogbc = new GridBagConstraints();
+		ogbc.insets = new Insets(3, 0, 3, 24);
+		ogbc.anchor = GridBagConstraints.WEST;
+		ogbc.gridx = 0;
+		ogbc.gridy = 0;
+		options.add(searchCaseSensitive, ogbc);
+		ogbc.gridx = 1;
+		options.add(searchRegex, ogbc);
+		ogbc.gridx = 0;
+		ogbc.gridy = 1;
+		options.add(searchWholeWords, ogbc);
+		ogbc.gridy = 2;
+		options.add(searchFuzzy, ogbc);
+
+		gbc.gridx = 0;
+		gbc.gridy = 1;
+		gbc.gridwidth = 3;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		main.add(options, gbc);
+
+		gbc.gridy = 2;
+		main.add(searchStatus, gbc);
+
+		var buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+		buttons.add(previous);
+		buttons.add(next);
+		buttons.add(cancel);
+
+		var root = new JPanel(new BorderLayout());
+		root.add(main, BorderLayout.CENTER);
+		root.add(buttons, BorderLayout.SOUTH);
+		searchDialog.setContentPane(root);
+		searchDialog.getRootPane().setDefaultButton(next);
+		installSearchDialogShortcuts(previous, next, cancel);
+		updateSearchControlState();
+	}
+
+	private void installSearchDialogShortcuts(JButton previous, JButton next, JButton cancel) {
+		var input = searchDialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+		var actions = searchDialog.getRootPane().getActionMap();
+
+		input.put(KeyStroke.getKeyStroke("shift ENTER"), "findPrevious");
+		actions.put("findPrevious", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				previous.doClick();
+			}
+		});
+
+		input.put(KeyStroke.getKeyStroke("ESCAPE"), "cancel");
+		actions.put("cancel", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				cancel.doClick();
+			}
+		});
+
+		input.put(KeyStroke.getKeyStroke("F7"), "findNext");
+		actions.put("findNext", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				next.doClick();
+			}
+		});
+	}
+
+	private void seedSearchFieldFromSelection() {
+		if (searchField == null) {
+			return;
+		}
+		String selected = textArea.getSelectedText();
+		if (selected != null && !selected.isBlank() && selected.indexOf('\n') < 0 && selected.length() <= 200) {
+			searchField.setText(selected);
+			searchTextMode.setSelected(true);
+		}
+	}
+
+	private void updateSearchControlState() {
+		if (searchTextMode == null) {
+			return;
+		}
+		boolean textMode = searchTextMode.isSelected();
+		searchCaseSensitive.setEnabled(textMode);
+		searchRegex.setEnabled(textMode);
+		searchWholeWords.setEnabled(textMode);
+		searchFuzzy.setEnabled(textMode);
+	}
+
+	private void runSearch(boolean forward) {
+		SearchOptions options = new SearchOptions(searchHexMode.isSelected(), searchCaseSensitive.isSelected(),
+				searchRegex.isEnabled() && searchRegex.isSelected(),
+				searchWholeWords.isEnabled() && searchWholeWords.isSelected(),
+				searchFuzzy.isEnabled() && searchFuzzy.isSelected());
+		String query = searchField.getText();
+
+		try {
+			SearchMatch match = options.hex()
+					? findHexMatch(query, forward)
+					: findTextMatch(query, forward, options);
+			if (match == null) {
+				clearSearchHighlight();
+				setSearchStatus("Not found", true);
+				return;
+			}
+			selectSearchMatch(match);
+			setSearchStatus((match.wrapped() ? "Wrapped, " : "") + lineColumnStatus(match.start()), false);
+		} catch (IllegalArgumentException ex) {
+			setSearchStatus(ex.getMessage(), true);
+		}
+	}
+
+	private SearchMatch findTextMatch(String query, boolean forward, SearchOptions options) {
+		if (query == null || query.isEmpty()) {
+			throw new IllegalArgumentException("Enter text to search for.");
+		}
+		String text = textArea.getText();
+		if (text.isEmpty()) {
+			return null;
+		}
+		if (options.regex()) {
+			return findRegexMatch(text, query, forward, options);
+		}
+		if (options.fuzzy()) {
+			return findFuzzyMatch(text, query, forward, options);
+		}
+		return findLiteralMatch(text, query, forward, options);
+	}
+
+	private SearchMatch findLiteralMatch(String text, String query, boolean forward, SearchOptions options) {
+		String haystack = options.caseSensitive() ? text : text.toLowerCase(Locale.ROOT);
+		String needle = options.caseSensitive() ? query : query.toLowerCase(Locale.ROOT);
+		if (needle.isEmpty() || needle.length() > haystack.length()) {
+			return null;
+		}
+
+		if (forward) {
+			int from = Math.min(textArea.getSelectionEnd(), haystack.length());
+			SearchMatch match = findLiteralForward(text, haystack, needle, from, options.wholeWords(), false);
+			return match != null ? match : findLiteralForward(text, haystack, needle, 0, options.wholeWords(), true);
+		}
+
+		int from = Math.max(0, textArea.getSelectionStart() - 1);
+		SearchMatch match = findLiteralPrevious(text, haystack, needle, from, options.wholeWords(), false);
+		return match != null
+				? match
+				: findLiteralPrevious(text, haystack, needle, haystack.length() - needle.length(), options.wholeWords(),
+						true);
+	}
+
+	private static SearchMatch findLiteralForward(String text, String haystack, String needle, int from,
+			boolean wholeWords, boolean wrapped) {
+		int index = haystack.indexOf(needle, Math.max(0, from));
+		while (index >= 0) {
+			int end = index + needle.length();
+			if (!wholeWords || isWholeWordMatch(text, index, end)) {
+				return new SearchMatch(index, end, wrapped);
+			}
+			index = haystack.indexOf(needle, index + 1);
+		}
+		return null;
+	}
+
+	private static SearchMatch findLiteralPrevious(String text, String haystack, String needle, int from,
+			boolean wholeWords, boolean wrapped) {
+		int startFrom = Math.min(Math.max(0, from), haystack.length() - needle.length());
+		int index = haystack.lastIndexOf(needle, startFrom);
+		while (index >= 0) {
+			int end = index + needle.length();
+			if (!wholeWords || isWholeWordMatch(text, index, end)) {
+				return new SearchMatch(index, end, wrapped);
+			}
+			index = haystack.lastIndexOf(needle, index - 1);
+		}
+		return null;
+	}
+
+	private SearchMatch findRegexMatch(String text, String query, boolean forward, SearchOptions options) {
+		int flags = Pattern.MULTILINE;
+		if (!options.caseSensitive()) {
+			flags |= Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+		}
+		Pattern pattern = Pattern.compile(query, flags);
+
+		if (forward) {
+			int from = Math.min(textArea.getSelectionEnd(), text.length());
+			SearchMatch match = findRegexForward(text, pattern, from, options.wholeWords(), false);
+			return match != null ? match : findRegexForward(text, pattern, 0, options.wholeWords(), true);
+		}
+
+		int from = Math.max(0, textArea.getSelectionStart());
+		SearchMatch match = findRegexPrevious(text, pattern, from, options.wholeWords(), false);
+		return match != null ? match : findRegexPrevious(text, pattern, text.length(), options.wholeWords(), true);
+	}
+
+	private static SearchMatch findRegexForward(String text, Pattern pattern, int from, boolean wholeWords,
+			boolean wrapped) {
+		Matcher matcher = pattern.matcher(text);
+		int searchFrom = Math.max(0, Math.min(from, text.length()));
+		while (matcher.find(searchFrom)) {
+			if (matcher.start() == matcher.end()) {
+				searchFrom = matcher.end() + 1;
+				if (searchFrom > text.length()) {
+					return null;
+				}
+				continue;
+			}
+			if (!wholeWords || isWholeWordMatch(text, matcher.start(), matcher.end())) {
+				return new SearchMatch(matcher.start(), matcher.end(), wrapped);
+			}
+			searchFrom = matcher.start() + 1;
+		}
+		return null;
+	}
+
+	private static SearchMatch findRegexPrevious(String text, Pattern pattern, int fromExclusive, boolean wholeWords,
+			boolean wrapped) {
+		Matcher matcher = pattern.matcher(text);
+		SearchMatch previous = null;
+		int limit = Math.max(0, Math.min(fromExclusive, text.length()));
+		while (matcher.find()) {
+			if (matcher.start() >= limit) {
+				break;
+			}
+			if (matcher.start() == matcher.end()) {
+				continue;
+			}
+			if (!wholeWords || isWholeWordMatch(text, matcher.start(), matcher.end())) {
+				previous = new SearchMatch(matcher.start(), matcher.end(), wrapped);
+			}
+		}
+		return previous;
+	}
+
+	private SearchMatch findFuzzyMatch(String text, String query, boolean forward, SearchOptions options) {
+		if (query.isEmpty()) {
+			return null;
+		}
+
+		if (forward) {
+			int from = Math.min(textArea.getSelectionEnd(), text.length());
+			SearchMatch match = findFuzzyForward(text, query, from, options, false);
+			return match != null ? match : findFuzzyForward(text, query, 0, options, true);
+		}
+
+		int from = Math.max(0, textArea.getSelectionStart());
+		SearchMatch match = findFuzzyPrevious(text, query, from, options, false);
+		return match != null ? match : findFuzzyPrevious(text, query, text.length(), options, true);
+	}
+
+	private static SearchMatch findFuzzyForward(String text, String query, int from, SearchOptions options,
+			boolean wrapped) {
+		for (int start = Math.max(0, from); start < text.length(); start++) {
+			SearchMatch match = fuzzyAt(text, query, start, options, wrapped);
+			if (match != null) {
+				return match;
+			}
+		}
+		return null;
+	}
+
+	private static SearchMatch findFuzzyPrevious(String text, String query, int fromExclusive, SearchOptions options,
+			boolean wrapped) {
+		SearchMatch previous = null;
+		int start = 0;
+		int limit = Math.max(0, Math.min(fromExclusive, text.length()));
+		while (start < limit) {
+			SearchMatch match = fuzzyAt(text, query, start, options, wrapped);
+			if (match == null) {
+				start++;
+				continue;
+			}
+			if (match.start() >= limit) {
+				break;
+			}
+			previous = match;
+			start = match.start() + 1;
+		}
+		return previous;
+	}
+
+	private static SearchMatch fuzzyAt(String text, String query, int start, SearchOptions options, boolean wrapped) {
+		int q = 0;
+		int first = -1;
+		for (int i = start; i < text.length(); i++) {
+			if (sameSearchChar(text.charAt(i), query.charAt(q), options.caseSensitive())) {
+				if (first < 0) {
+					first = i;
+				}
+				q++;
+				if (q == query.length()) {
+					int end = i + 1;
+					if (!options.wholeWords() || isWholeWordMatch(text, first, end)) {
+						return new SearchMatch(first, end, wrapped);
+					}
+					return null;
+				}
+			}
+		}
+		return null;
+	}
+
+	private SearchMatch findHexMatch(String query, boolean forward) {
+		byte[] needle = parseHexQuery(query);
+		String text = textArea.getText();
+		ByteTextIndex index = buildByteTextIndex(text);
+		if (needle.length > index.bytes().length) {
+			return null;
+		}
+
+		if (forward) {
+			int from = byteOffsetForChar(index, textArea.getSelectionEnd());
+			int byteStart = indexOf(index.bytes(), needle, from);
+			SearchMatch match = byteMatchToTextMatch(index, byteStart, needle.length, false);
+			return match != null ? match : byteMatchToTextMatch(index, indexOf(index.bytes(), needle, 0), needle.length,
+					true);
+		}
+
+		int from = byteOffsetForChar(index, textArea.getSelectionStart()) - 1;
+		int byteStart = lastIndexOf(index.bytes(), needle, from);
+		SearchMatch match = byteMatchToTextMatch(index, byteStart, needle.length, false);
+		return match != null
+				? match
+				: byteMatchToTextMatch(index, lastIndexOf(index.bytes(), needle, index.bytes().length - needle.length),
+						needle.length, true);
+	}
+
+	private static byte[] parseHexQuery(String query) {
+		if (query == null || query.isBlank()) {
+			throw new IllegalArgumentException("Enter hex bytes to search for.");
+		}
+		String normalized = query.replaceAll("(?i)0x", "")
+				.replaceAll("(?i)\\\\x", "")
+				.replaceAll("[\\s,;:_-]+", "");
+		if (normalized.isEmpty()) {
+			throw new IllegalArgumentException("Enter hex bytes to search for.");
+		}
+		if ((normalized.length() & 1) != 0) {
+			throw new IllegalArgumentException("Hex search needs pairs of digits.");
+		}
+		if (!normalized.matches("[0-9a-fA-F]+")) {
+			throw new IllegalArgumentException("Hex search can only contain 0-9 and A-F.");
+		}
+
+		byte[] bytes = new byte[normalized.length() / 2];
+		for (int i = 0; i < bytes.length; i++) {
+			bytes[i] = (byte) Integer.parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
+		}
+		return bytes;
+	}
+
+	private static ByteTextIndex buildByteTextIndex(String text) {
+		byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+		int[] charToByte = new int[text.length() + 1];
+		int[] byteToChar = new int[bytes.length + 1];
+		int bytePos = 0;
+
+		for (int charIndex = 0; charIndex < text.length();) {
+			int codePoint = text.codePointAt(charIndex);
+			int nextChar = charIndex + Character.charCount(codePoint);
+			int byteLength = new String(Character.toChars(codePoint)).getBytes(StandardCharsets.UTF_8).length;
+
+			for (int i = charIndex; i < nextChar; i++) {
+				charToByte[i] = bytePos;
+			}
+			for (int i = 0; i < byteLength && bytePos + i < byteToChar.length; i++) {
+				byteToChar[bytePos + i] = charIndex;
+			}
+
+			bytePos += byteLength;
+			if (bytePos < byteToChar.length) {
+				byteToChar[bytePos] = nextChar;
+			}
+			charToByte[nextChar] = Math.min(bytePos, bytes.length);
+			charIndex = nextChar;
+		}
+		charToByte[text.length()] = bytes.length;
+		byteToChar[bytes.length] = text.length();
+		return new ByteTextIndex(bytes, charToByte, byteToChar);
+	}
+
+	private static int byteOffsetForChar(ByteTextIndex index, int charIndex) {
+		int clipped = Math.max(0, Math.min(charIndex, index.charToByte().length - 1));
+		return index.charToByte()[clipped];
+	}
+
+	private static SearchMatch byteMatchToTextMatch(ByteTextIndex index, int byteStart, int byteLength,
+			boolean wrapped) {
+		if (byteStart < 0) {
+			return null;
+		}
+		int byteEnd = Math.min(index.bytes().length, byteStart + byteLength);
+		int start = index.byteToChar()[Math.max(0, Math.min(byteStart, index.byteToChar().length - 1))];
+		int end = index.byteToChar()[Math.max(0, Math.min(byteEnd, index.byteToChar().length - 1))];
+		if (end <= start) {
+			end = Math.min(index.charToByte().length - 1, start + 1);
+		}
+		return new SearchMatch(start, end, wrapped);
+	}
+
+	private static int indexOf(byte[] haystack, byte[] needle, int from) {
+		if (needle.length == 0 || haystack.length < needle.length) {
+			return -1;
+		}
+		int limit = haystack.length - needle.length;
+		for (int i = Math.max(0, from); i <= limit; i++) {
+			if (bytesMatchAt(haystack, needle, i)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private static int lastIndexOf(byte[] haystack, byte[] needle, int from) {
+		if (needle.length == 0 || haystack.length < needle.length) {
+			return -1;
+		}
+		int start = Math.min(Math.max(0, from), haystack.length - needle.length);
+		for (int i = start; i >= 0; i--) {
+			if (bytesMatchAt(haystack, needle, i)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private static boolean bytesMatchAt(byte[] haystack, byte[] needle, int start) {
+		for (int i = 0; i < needle.length; i++) {
+			if (haystack[start + i] != needle[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private void selectSearchMatch(SearchMatch match) {
+		textArea.select(match.start(), match.end());
+		highlightSearchMatch(match);
+		textArea.getCaret().setSelectionVisible(false);
+		try {
+			var rect = textArea.modelToView2D(match.start());
+			if (rect != null) {
+				textArea.scrollRectToVisible(rect.getBounds());
+			}
+		} catch (BadLocationException ignored) {
+		}
+	}
+
+	private void highlightSearchMatch(SearchMatch match) {
+		clearSearchHighlight();
+		textArea.setMarkAllHighlightColor(searchMatchColor());
+		textArea.markAll(List.of(new DocumentRange(match.start(), match.end())));
+	}
+
+	private void clearSearchHighlight() {
+		textArea.clearMarkAllHighlights();
+	}
+
+	private Color searchMatchColor() {
+		Color selection = textArea.getSelectionColor();
+		Color background = textArea.getBackground();
+		return blend(background, selection != null ? selection : new Color(0x4C8BFF), 0.82f);
+	}
+
+	private String lineColumnStatus(int offset) {
+		try {
+			int line = textArea.getLineOfOffset(offset);
+			int column = offset - textArea.getLineStartOffset(line);
+			return "Line " + (line + 1) + ", column " + (column + 1);
+		} catch (BadLocationException e) {
+			return "Found";
+		}
+	}
+
+	private void setSearchStatus(String message, boolean error) {
+		if (searchStatus == null) {
+			return;
+		}
+		searchStatus.setText(message);
+		searchStatus.setForeground(error ? new Color(0xE05252)
+				: themeColor(context != null ? context.getTheme() : null, "Label.foreground", textArea.getForeground()));
+	}
+
+	private void hideSearchDialog() {
+		if (searchDialog != null) {
+			searchDialog.setVisible(false);
+		}
+		textArea.getCaret().setSelectionVisible(true);
+		textArea.requestFocusInWindow();
+	}
+
+	private void closeSearchDialog() {
+		if (searchDialog != null) {
+			searchDialog.setVisible(false);
+			searchDialog.dispose();
+			searchDialog = null;
+			searchField = null;
+			searchTextMode = null;
+			searchHexMode = null;
+			searchCaseSensitive = null;
+			searchRegex = null;
+			searchWholeWords = null;
+			searchFuzzy = null;
+			searchStatus = null;
+		}
+		clearSearchHighlight();
+	}
+
 	/**
 	 * Behaviour of the F2 key. In the editor this saves the file; the read-only
 	 * viewer overrides it to toggle word wrap instead.
@@ -826,6 +1472,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			return;
 		}
 
+		if (FIND_ACTION.equals(type)) {
+			showSearchDialog();
+			return;
+		}
+
 		if (TOGGLE_WRAP_ACTION.equals(type)) {
 			toggleWrap();
 		}
@@ -850,6 +1501,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			return;
 		}
 
+		if (FIND_ACTION.equals(actionType)) {
+			showSearchDialog();
+			return;
+		}
+
 		if (TOGGLE_WRAP_ACTION.equals(actionType)) {
 			toggleWrap();
 		}
@@ -861,6 +1517,25 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		return Role.Editor;
 	}
 
+	private static boolean isWholeWordMatch(String text, int start, int end) {
+		return isWordBoundary(text, start - 1) && isWordBoundary(text, end);
+	}
+
+	private static boolean isWordBoundary(String text, int index) {
+		return index < 0 || index >= text.length() || !isWordChar(text.charAt(index));
+	}
+
+	private static boolean isWordChar(char ch) {
+		return Character.isLetterOrDigit(ch) || ch == '_';
+	}
+
+	private static boolean sameSearchChar(char a, char b, boolean caseSensitive) {
+		if (caseSensitive) {
+			return a == b;
+		}
+		return Character.toLowerCase(a) == Character.toLowerCase(b);
+	}
+
 	private enum SaveResult {
 		SAVED,
 		UNCHANGED,
@@ -870,6 +1545,15 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	private record FileStamp(FileTime lastModifiedTime, long size) {
+	}
+
+	private record SearchOptions(boolean hex, boolean caseSensitive, boolean regex, boolean wholeWords, boolean fuzzy) {
+	}
+
+	private record SearchMatch(int start, int end, boolean wrapped) {
+	}
+
+	private record ByteTextIndex(byte[] bytes, int[] charToByte, int[] byteToChar) {
 	}
 
 	private static final class SaveToast extends JPanel {
