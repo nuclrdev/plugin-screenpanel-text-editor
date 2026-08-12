@@ -18,29 +18,36 @@ This plugin ships **two roles**:
 | 🪄 Code folding | Foldable regions where the language supports it |
 | 🔤 Preferred font | JetBrains Mono when available; falls back to system monospace |
 | 🌑 Dark theme | Colors follow the Nuclr Commander theme via `NuclrThemeScheme` |
-| 💾 Dirty tracking | Unsaved changes are tracked; the title updates accordingly |
-| ↩️ Word wrap | Toggleable with `F2` |
+| 💾 Dirty tracking | Unsaved changes are tracked; the title updates accordingly, and closing prompts **Save / Don't Save / Cancel** |
+| 🔍 Search | Modeless find dialog (`F7` / `Ctrl+F`) with find next/previous, wrap-around, and a match position status line |
+| ⚙️ Search options | Case sensitive · regular expressions · whole words · fuzzy search |
+| ↩️ Word wrap | On by default, wrapping at word boundaries |
 | 🛡️ Safe fallback | Non-UTF-8 files open in read-only mode |
 
 ## ⌨️ Keyboard Shortcuts
 
 | Key | Action |
 |---|---|
-| `F2` | Toggle word wrap |
+| `F2` / `Ctrl+S` | Save (editor only) |
 | `F3` / `Escape` | Close editor / viewer |
+| `F7` / `Ctrl+F` | Open the search dialog |
 
 ## 🎯 Supported Formats
 
+**Any** file that `TextFileDetector` recognises as text can be opened — detection is content-based (an 8 KB sample), not extension-based, so binary files are skipped automatically and extensionless text files open fine.
+
+The extension only picks the **syntax highlighting**:
+
 | Category | Extensions |
 |---|---|
-| JVM | `java`, `kt`, `scala`, `groovy` |
-| Web | `js`, `mjs`, `ts`, `tsx`, `html`, `htm`, `css` |
-| Data / config | `json`, `xml`, `yaml`, `yml`, `properties`, `ini`, `toml`, `csv` |
-| Systems | `c`, `h`, `cpp`, `hpp`, `cs`, `go`, `rs`, `php` |
+| JVM | `java` |
+| Web | `js`, `mjs`, `ts`, `tsx`, `html`, `htm`, `css`, `php` |
+| Data / config | `json`, `xml`, `yaml`, `yml`, `toml`, `properties`, `ini`, `csv` |
+| Systems | `c`, `h`, `cpp`, `hpp`, `cs`, `go`, `rs` |
 | Scripts | `py`, `sql` |
-| Plain text | `txt`, `log`, `md` |
+| Markup / plain text | `md`, `txt`, `log` |
 
-> 🔍 The plugin uses `TextFileDetector` to check whether a file is text before offering to open it — binary files are automatically skipped.
+Anything else opens with highlighting off.
 
 ## 📥 Installation
 
@@ -55,14 +62,16 @@ Nuclr Commander verifies the RSA-SHA256 signature against `nuclr-cert.pem` on lo
 
 ## ⚙️ How it works
 
-`TextEditorScreenPlugin` implements `FullscreenNuclrPlugin` with `Role.Editor`. It creates an `RSyntaxTextArea` inside an `RTextScrollPane`, applies the Bined dark theme XML, and binds the theme updater to `NuclrThemeScheme`. `TextViewerScreenPlugin` extends it and overrides `isEditable()` to return `false`. `TextFileDetector` performs a binary scan before the plugin reports support for a resource.
+`TextEditorScreenPlugin` implements `FullscreenNuclrPlugin` in the editor role. It creates an `RSyntaxTextArea` inside an `RTextScrollPane`, applies the theme XML, and binds the theme updater to `NuclrThemeScheme`. `TextViewerScreenPlugin` extends it and overrides `isEditable()` to return `false`, so both roles share all editing, search, and theming code. `TextFileDetector` performs a binary scan before the plugin reports support for a resource.
+
+Key bindings are installed on the panel, the scroll pane *and* the text area, so a shortcut fires regardless of which of the three currently holds focus.
 
 ## 🗂️ Source Layout
 
 ```text
 src/main/java/dev/nuclr/plugin/core/screen/texteditor/
-├── TextEditorScreenPlugin.java   fullscreen text editor (Editor role)
-├── TextViewerScreenPlugin.java   read-only viewer variant (Viewer role)
+├── TextEditorScreenPlugin.java   fullscreen text editor (editor role), search dialog
+├── TextViewerScreenPlugin.java   read-only viewer variant (viewer role)
 └── TextFileDetector.java         text vs binary file detection
 ```
 
@@ -70,8 +79,10 @@ src/main/java/dev/nuclr/plugin/core/screen/texteditor/
 
 | Library | Version | Purpose |
 |---|---|---|
-| `dev.nuclr:platform-sdk` | `3.0.1` | Nuclr platform interfaces |
+| `dev.nuclr:platform-sdk` | `3.0.2` | Nuclr platform interfaces |
 | `rsyntaxtextarea` | `3.6.1` | Syntax-highlighted text editor component |
+| `commons-io` | `2.22.0` | File reading / encoding helpers |
+| `commons-lang3` | `3.20.0` | String utilities |
 
 ## 📜 License
 
