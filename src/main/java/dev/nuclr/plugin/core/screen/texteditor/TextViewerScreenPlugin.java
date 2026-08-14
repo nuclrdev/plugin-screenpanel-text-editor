@@ -7,14 +7,6 @@ import dev.nuclr.platform.plugin.NuclrResource;
 
 public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 
-	private static final String PLUGIN_ID   = "dev.nuclr.plugin.core.screen.textviewer";
-	
-	private static final String PLUGIN_NAME = "Text Viewer";
-
-	@Override
-	public Role role() {
-		return Role.Viewer;
-	}
 
 	/** In the read-only viewer, F2 toggles word wrap rather than saving. */
 	@Override
@@ -48,14 +40,5 @@ public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 		return false;
 	}
 
-	@Override
-	public String id() {
-		return PLUGIN_ID;
-	}
-
-	@Override
-	public String name() {
-		return PLUGIN_NAME;
-	}
 
 }

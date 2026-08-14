@@ -82,16 +82,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private static final String SAVE_ACTION = "plugin.text.editor.save";
 	private static final String FIND_ACTION = "plugin.text.editor.search";
 
-	private static final String PLUGIN_ID = "dev.nuclr.plugin.core.screen.texteditor";
-	private static final String PLUGIN_NAME = "Text Editor";
-	private static final String PLUGIN_VERSION = loadVersion();
-	private static final String PLUGIN_DESCRIPTION = "Text editor screen provider (F4) for readable files.";
-	private static final String PLUGIN_AUTHOR = "Nuclr Development Team";
-	private static final String PLUGIN_LICENSE = "Apache-2.0";
-	private static final String PLUGIN_WEBSITE = "https://nuclr.dev";
-	private static final String PLUGIN_PAGE_URL = "https://nuclr.dev/plugins/core/screenpanel-text-editor.html";
-	private static final String PLUGIN_DOC_URL = PLUGIN_PAGE_URL;
-
 	private static final Map<String, String> EXTENSION_TO_SYNTAX = Map.ofEntries(
 			Map.entry("java", SyntaxConstants.SYNTAX_STYLE_JAVA),
 			Map.entry("js", SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT),
@@ -171,61 +161,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	@Override
 	public boolean isFocused() {
 		return textArea.isFocusOwner() || scroll.isFocusOwner() || panel.isFocusOwner();
-	}
-
-	@Override
-	public String id() {
-		return PLUGIN_ID;
-	}
-
-	@Override
-	public String name() {
-		return PLUGIN_NAME;
-	}
-
-	@Override
-	public String version() {
-		return PLUGIN_VERSION;
-	}
-	private static String loadVersion() {
-		try (var stream = TextEditorScreenPlugin.class.getResourceAsStream("/plugin.properties")) {
-			if (stream == null) return "unknown";
-			var props = new java.util.Properties();
-			props.load(stream);
-			return props.getProperty("version", "unknown");
-		} catch (java.io.IOException e) {
-			return "unknown";
-		}
-	}
-
-	@Override
-	public String description() {
-		return PLUGIN_DESCRIPTION;
-	}
-
-	@Override
-	public String author() {
-		return PLUGIN_AUTHOR;
-	}
-
-	@Override
-	public String license() {
-		return PLUGIN_LICENSE;
-	}
-
-	@Override
-	public String website() {
-		return PLUGIN_WEBSITE;
-	}
-
-	@Override
-	public String pageUrl() {
-		return PLUGIN_PAGE_URL;
-	}
-
-	@Override
-	public String docUrl() {
-		return PLUGIN_DOC_URL;
 	}
 
 	@Override
@@ -385,10 +320,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		applyUiTheme(themeScheme);
 	}
 
-	@Override
-	public boolean singleton() {
-		return false;
-	}
 
 	@Override
 	public boolean isMessageSupported(String type) {
@@ -1440,10 +1371,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		return filename.substring(dot + 1);
 	}
 
-	@Override
-	public Developer developer() {
-		return Developer.Official;
-	}
 
 	@Override
 	public NuclrPluginContext getContext() {
@@ -1512,10 +1439,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	}
 
-	@Override
-	public Role role() {
-		return Role.Editor;
-	}
 
 	private static boolean isWholeWordMatch(String text, int start, int end) {
 		return isWordBoundary(text, start - 1) && isWordBoundary(text, end);
@@ -1630,5 +1553,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			g2.dispose();
 		}
 	}
+
 
 }

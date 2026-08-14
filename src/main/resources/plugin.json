@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "version": "${project.version}",
+  "platformSdkVersion": "4.0.0",
+	"plugins": [
+		{
+			"class": "dev.nuclr.plugin.core.screen.texteditor.TextEditorScreenPlugin",
+			"type": "Fullscreen",
+			"id": "dev.nuclr.plugin.core.screen.texteditor",
+			"name": "Text Editor",
+			"version": "${project.version}",
+			"description": "Text editor screen provider (F4) for readable files.",
+			"author": "Nuclr Development Team",
+			"license": "Apache-2.0",
+			"website": "https://nuclr.dev",
+			"pageUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"docUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"developer": "Official",
+			"singleton": false,
+			"role": "Editor"
+		},
+		{
+			"class": "dev.nuclr.plugin.core.screen.texteditor.TextViewerScreenPlugin",
+			"type": "Fullscreen",
+			"id": "dev.nuclr.plugin.core.screen.textviewer",
+			"name": "Text Viewer",
+			"version": "${project.version}",
+			"description": "Text editor screen provider (F4) for readable files.",
+			"author": "Nuclr Development Team",
+			"license": "Apache-2.0",
+			"website": "https://nuclr.dev",
+			"pageUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"docUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"developer": "Official",
+			"singleton": false,
+			"role": "Viewer"
+		}
+	]
+}
