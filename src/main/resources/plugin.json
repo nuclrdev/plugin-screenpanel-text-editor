@@ -13,8 +13,8 @@
 			"author": "Nuclr Development Team",
 			"license": "Apache-2.0",
 			"website": "https://nuclr.dev",
-			"pageUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
-			"docUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"pageUrl": "https://github.com/nuclrdev/plugin-screenpanel-text-editor",
+			"docUrl": "https://github.com/nuclrdev/plugin-screenpanel-text-editor",
 			"developer": "Official",
 			"singleton": false,
 			"role": "Editor"
@@ -29,8 +29,8 @@
 			"author": "Nuclr Development Team",
 			"license": "Apache-2.0",
 			"website": "https://nuclr.dev",
-			"pageUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
-			"docUrl": "https://nuclr.dev/plugins/core/screenpanel-text-editor.html",
+			"pageUrl": "https://github.com/nuclrdev/plugin-screenpanel-text-editor",
+			"docUrl": "https://github.com/nuclrdev/plugin-screenpanel-text-editor",
 			"developer": "Official",
 			"singleton": false,
 			"role": "Viewer"
