@@ -20,6 +20,8 @@ import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -165,17 +167,36 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		return textArea.isFocusOwner() || scroll.isFocusOwner() || panel.isFocusOwner();
 	}
 
+	/**
+	 * The largest resource with no local file this editor will open.
+	 *
+	 * <p>Reading one means a network fetch on the event dispatch thread, so the ceiling is set
+	 * where a text file stops being something anyone edits by hand.
+	 */
+	private static final long MAX_REMOTE_BYTES = 16L * 1024 * 1024;
+
 	@Override
 	public JComponent panel() {
 		return panel;
 	}
 
+	/**
+	 * Whether this editor can open {@code resource}.
+	 *
+	 * <p>A resource with no local file — an object in a bucket, an entry in a remote listing — is
+	 * opened read-only rather than turned away: {@link #isEditable()} withholds saving, since the
+	 * resource API can read a resource but not write one back.
+	 *
+	 * <p>Unlike quick view, this runs only when the user actually asks to open something, so it can
+	 * afford to fetch the content to decide.
+	 *
+	 * @param resource the resource to open
+	 * @return {@code true} when it can be shown here
+	 */
 	@Override
 	public boolean supports(NuclrResource resource) {
-		
-		var path = resource != null ? resource.getPath() : null;
 
-		if (path == null) {
+		if (resource == null) {
 			return false;
 		}
 
@@ -184,30 +205,23 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			if (resource.isFolder() || false == resource.isReadable()) {
 				return false;
 			}
+
+			// A resource with no local file is fetched over the network, and both this probe and
+			// the open that follows run on the event dispatch thread. A local file that big has
+			// always been allowed to open slowly; a remote one would hang the window instead.
+			if (resource.getPath() == null && resource.getLength() > MAX_REMOTE_BYTES) {
+				log.info("Not opening {} in the text editor: {} bytes exceeds the {} byte remote limit",
+						resource.getName(), resource.getLength(), MAX_REMOTE_BYTES);
+				return false;
+			}
 			
 			var st = System.currentTimeMillis();
 			var supported = TextFileDetector.isTextFile(resource);
 			var et = System.currentTimeMillis();
 			
-			log.info("TextFileDetector result for {}: {} ({} ms)", path, supported, (et - st));
+			log.info("TextFileDetector result for {}: {} ({} ms)", resource.getName(), supported, (et - st));
 			
-			if (false == supported) {
-				
-				// delete the temp file if it was created for detection
-				Path tempFile = resource.getMetadata("tempPath", null);
-				
-				if (tempFile != null) {
-					try {
-						Files.deleteIfExists(tempFile);
-					} catch (IOException ignored) {
-					}
-				}
-				
-				return false;
-				
-			}
-			
-			return true;
+			return supported;
 			
 		} catch (Exception ex) {
 			return false;
@@ -220,6 +234,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		var f2 = new NuclrMenuResource("Save", "F2", SAVE_ACTION);
 		var f3 = new NuclrMenuResource("Quit", "F3", REQUEST_CLOSE_ACTION);
 		var f7 = new NuclrMenuResource("Search", "F7", FIND_ACTION);
+
+		// A resource with no local file cannot be written back, so it is not offered.
+		if (resource != null && resource.getPath() == null) {
+			return List.of(f3, f7);
+		}
 
 		return List.of(f2, f3, f7);
 	}
@@ -254,17 +273,19 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		currentResource = resource;
 		discardOnClose = false;
 		
-		Path path = resource.getMetadata("tempPath", resource.getPath());
-		
-		String filename = path.getFileName() != null ? path.getFileName().toString() : path.toString();
+		Path path = resource.getPath();
+
+		String filename = displayName(resource);
 
 		String content;
 		
 		boolean editable = isEditable();
 		
 		try {
-			content = Files.readString(path, StandardCharsets.UTF_8);
-		} catch (IOException ex) {
+			// Read through the resource, not its path: a remote resource has no local file, and
+			// the temp file the detector may have staged is about to be deleted.
+			content = readContent(resource);
+		} catch (Exception ex) {
 			content = "Error reading file: " + ex.getMessage();
 			editable = false;
 		}
@@ -275,24 +296,56 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		textArea.setWrapStyleWord(wrapByDefault());
 		textArea.setCaretPosition(0);
 		dirty = false;
-		lastKnownFileStamp = readFileStampQuietly(resource.getPath());
+		lastKnownFileStamp = readFileStampQuietly(path);
 
-		titlePath = path.toString();
+		titlePath = path != null ? path.toString() : filename;
 		updateTitle();
-		
-		// Remove temp file
-		if (resource.getMetadata("tempPath", null) != null) {
-			try {
-				Files.deleteIfExists(path);
-			} catch (IOException ignored) {
-			}
-		}
 
 		return true;
 	}
 
+	/**
+	 * Whether the open resource can be written back.
+	 *
+	 * <p>{@link NuclrResource} offers a way to read a resource but not to write one, so a resource
+	 * with no local file is shown read-only. Saving it would need an upload API this plugin does
+	 * not have.
+	 *
+	 * @return {@code true} when edits can be saved
+	 */
 	public boolean isEditable() {
-		return true;
+		return currentResource == null || currentResource.getPath() != null;
+	}
+
+	/**
+	 * The whole resource, strictly decoded as UTF-8.
+	 *
+	 * <p>Strict on purpose, the way {@code Files.readString} is: a file that is not UTF-8 must
+	 * fail to open rather than load full of replacement characters, which a later save would
+	 * write back over the original bytes.
+	 */
+	private static String readContent(NuclrResource resource) throws Exception {
+		byte[] bytes;
+		try (var in = resource.openInputStream()) {
+			bytes = in.readAllBytes();
+		}
+		return StandardCharsets.UTF_8.newDecoder()
+				.onMalformedInput(CodingErrorAction.REPORT)
+				.onUnmappableCharacter(CodingErrorAction.REPORT)
+				.decode(ByteBuffer.wrap(bytes))
+				.toString();
+	}
+
+	/** The name to show in the title bar: the resource's own, or its file name. */
+	private static String displayName(NuclrResource resource) {
+		if (resource.getName() != null && !resource.getName().isBlank()) {
+			return resource.getName();
+		}
+		Path path = resource.getPath();
+		if (path == null) {
+			return "";
+		}
+		return path.getFileName() != null ? path.getFileName().toString() : path.toString();
 	}
 
 	@Override

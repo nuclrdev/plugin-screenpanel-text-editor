@@ -31,48 +31,81 @@ public final class TextFileDetector {
      * Combines MIME probing, byte analysis, and UTF-8 decoding.
      */
     public static boolean isTextFile(NuclrResource resource) throws IOException {
-    	
-        if (resource.isFolder()) {
+
+        if (resource == null || resource.isFolder()) {
             return false;
         }
         if (resource.getLength() == 0L) {
             return true; // empty files are trivially text
         }
-        
-    		Path tempFile = null;
-    	
-        try (var is = resource.openInputStream()) {
-        	
-        		if (false == Files.isRegularFile(resource.getPath())) {
-        			
-        			/** Create a temp file to probe the MIME type, since NuclrResource may not be a Path */
-        			tempFile = Files.createTempFile("mimeprobe." + UUID.randomUUID().toString(), null);
-        			Files.copy(is, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        			
-        			resource.getMetadata().put("tempPath", tempFile);
-        			
-        		} else {
-        			tempFile = resource.getPath();
-        		}
 
-	        // Strategy 1: MIME type hint from the OS / file extension
-	        Boolean mimeResult = checkMimeType(tempFile);
-	        if (mimeResult != null) {
-	            return mimeResult;
-	        }
-	
-	        // Strategy 2: byte-level heuristic on a sample
-	        byte[] sample = readSample(tempFile);
-	        
-	        return isSampleText(sample);
-	        
+        Path staged = null;
+
+        try {
+
+            Path localFile = resource.getPath();
+
+            if (localFile == null || !Files.isRegularFile(localFile)) {
+                /* No local file to probe — a bucket object, a remote listing entry. Stage the
+                 * head of the content instead. Only the first sample is ever examined, so there
+                 * is no reason to bring the whole thing down to answer a yes/no question. */
+                staged = stageSample(resource);
+                localFile = staged;
+            }
+
+            // Strategy 1: MIME type hint from the OS / file extension
+            Boolean mimeResult = checkMimeType(localFile);
+            if (mimeResult != null) {
+                return mimeResult;
+            }
+
+            // Strategy 2: byte-level heuristic on a sample
+            return isSampleText(readSample(localFile));
+
         } catch (Exception ignored) {
-        	// fall through to heuristic
+            // Unreadable or unrecognisable: not something to open in a text editor.
+            return false;
         } finally {
-        	
+            if (staged != null) {
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException ignored) {
+                    // Best effort; it is registered for deletion on exit as well.
+                }
+            }
         }
-        
-        return false;
+    }
+
+    /**
+     * Copy the head of a resource to a temp file the path-based strategies can probe.
+     *
+     * <p>The suffix is carried over from the resource name so the MIME probe, which on most
+     * platforms is a table lookup on the extension, has something to work with.
+     */
+    private static Path stageSample(NuclrResource resource) throws Exception {
+
+        Path tempFile = Files.createTempFile("nuclr-textprobe-" + UUID.randomUUID(), suffix(resource));
+        tempFile.toFile().deleteOnExit();
+
+        try (InputStream in = resource.openInputStream()) {
+            Files.write(tempFile, in.readNBytes(SAMPLE_SIZE));
+            return tempFile;
+        } catch (Exception e) {
+            Files.deleteIfExists(tempFile);
+            throw e;
+        }
+    }
+
+    /** The resource's extension, dot included, or {@code ".tmp"} when it has none. */
+    private static String suffix(NuclrResource resource) {
+        String name = resource.getName();
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot > 0 && dot < name.length() - 1) {
+                return name.substring(dot);
+            }
+        }
+        return ".tmp";
     }
 
     /**
