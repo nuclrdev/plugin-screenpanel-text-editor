@@ -83,6 +83,8 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	private static final String TOGGLE_WRAP_ACTION = "plugin.text.editor.wrap";
 	private static final String SAVE_ACTION = "plugin.text.editor.save";
 	private static final String FIND_ACTION = "plugin.text.editor.search";
+	private static final double MIN_SELECTION_BACKGROUND_CONTRAST = 3.0;
+	private static final double MIN_SELECTION_TEXT_CONTRAST = 4.5;
 
 	private static final Map<String, String> EXTENSION_TO_SYNTAX = Map.ofEntries(
 			Map.entry("java", SyntaxConstants.SYNTAX_STYLE_JAVA),
@@ -581,8 +583,10 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		Color background = themeColor(themeScheme, "Panel.background", textArea.getBackground());
 		Color foreground = themeColor(themeScheme, "Panel.foreground", textArea.getForeground());
 		Color accentSelection = themeColor(themeScheme, "Table.selectionBackground", textArea.getSelectionColor());
-		Color selectionBackground = blend(background, accentSelection, 0.26f);
-		Color selectionForeground = foreground;
+		Color selectionBackground = ensureContrast(background, accentSelection,
+				MIN_SELECTION_BACKGROUND_CONTRAST);
+		Color selectionForeground = readableForeground(selectionBackground,
+				themeColor(themeScheme, "Table.selectionForeground", foreground), foreground);
 		Color gutterBackground = themeColor(themeScheme, "TableHeader.background", background);
 		Color gutterForeground = themeColor(themeScheme, "Label.foreground", foreground);
 
@@ -591,6 +595,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		textArea.setCaretColor(foreground);
 		textArea.setSelectionColor(selectionBackground);
 		textArea.setSelectedTextColor(selectionForeground);
+		textArea.setUseSelectedTextColor(true);
 		textArea.setCurrentLineHighlightColor(themeColor(themeScheme, "Table.gridColor", gutterBackground));
 
 		var gutter = scroll.getGutter();
@@ -1409,6 +1414,60 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		return new Color(Math.round(base.getRed() * baseWeight + overlay.getRed() * clamped),
 				Math.round(base.getGreen() * baseWeight + overlay.getGreen() * clamped),
 				Math.round(base.getBlue() * baseWeight + overlay.getBlue() * clamped));
+	}
+
+	/**
+	 * Keeps the theme's selection accent when it is visible and minimally shifts it
+	 * towards black or white when it is too close to the editor background.
+	 */
+	private static Color ensureContrast(Color background, Color accent, double minimumContrast) {
+		if (contrastRatio(background, accent) >= minimumContrast) {
+			return accent;
+		}
+
+		Color target = contrastRatio(background, Color.BLACK) >= contrastRatio(background, Color.WHITE)
+				? Color.BLACK
+				: Color.WHITE;
+		float low = 0f;
+		float high = 1f;
+		for (int i = 0; i < 12; i++) {
+			float weight = (low + high) / 2f;
+			if (contrastRatio(background, blend(accent, target, weight)) >= minimumContrast) {
+				high = weight;
+			} else {
+				low = weight;
+			}
+		}
+		return blend(accent, target, high);
+	}
+
+	private static Color readableForeground(Color background, Color preferred, Color fallback) {
+		if (contrastRatio(background, preferred) >= MIN_SELECTION_TEXT_CONTRAST) {
+			return preferred;
+		}
+		if (contrastRatio(background, fallback) >= MIN_SELECTION_TEXT_CONTRAST) {
+			return fallback;
+		}
+		return contrastRatio(background, Color.BLACK) >= contrastRatio(background, Color.WHITE)
+				? Color.BLACK
+				: Color.WHITE;
+	}
+
+	private static double contrastRatio(Color first, Color second) {
+		double lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
+		double darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+		return (lighter + 0.05) / (darker + 0.05);
+	}
+
+	private static double relativeLuminance(Color color) {
+		return 0.2126 * linearChannel(color.getRed())
+				+ 0.7152 * linearChannel(color.getGreen())
+				+ 0.0722 * linearChannel(color.getBlue());
+	}
+
+	private static double linearChannel(int channel) {
+		double value = channel / 255.0;
+		return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 	}
 
 	private static Font editorFont(Font baseFont) {
