@@ -36,7 +36,10 @@ public final class TextFileDetector {
             return false;
         }
         if (resource.getLength() == 0L) {
-            return true; // empty files are trivially text
+            // Empty files are trivially text. Without a local file, though, 0 is also what a
+            // resource reports when its size is simply unknown - including rows that are not
+            // files at all - so it has to show it can actually be read.
+            return resource.getPath() != null || canOpen(resource);
         }
 
         Path staged = null;
@@ -73,6 +76,15 @@ public final class TextFileDetector {
                     // Best effort; it is registered for deletion on exit as well.
                 }
             }
+        }
+    }
+
+    /** Whether the resource's content can be opened at all; the default resource cannot. */
+    private static boolean canOpen(NuclrResource resource) {
+        try (InputStream ignored = resource.openInputStream()) {
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
