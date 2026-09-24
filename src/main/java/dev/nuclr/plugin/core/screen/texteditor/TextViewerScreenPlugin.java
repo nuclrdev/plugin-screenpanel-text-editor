@@ -23,7 +23,8 @@ public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 	@Override
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
 
-		var f1 = new NuclrMenuResource("Help", "F1", "plugin.text.editor.help");
+		// No event type: Commander answers F1 by opening this plugin's docUrl.
+		var f1 = new NuclrMenuResource("Help", "F1", "");
 		var f2 = new NuclrMenuResource("Wrap", "F2", "plugin.text.editor.wrap");
 		var f3 = new NuclrMenuResource("Quit", "F3", "plugin.fullscreen.close");
 		var f4 = new NuclrMenuResource("Hex", "F4", "plugin.text.editor.hex");
