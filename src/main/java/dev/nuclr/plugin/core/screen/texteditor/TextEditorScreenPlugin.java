@@ -106,6 +106,18 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			Map.entry("md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN),
 			Map.entry("properties", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE),
 			Map.entry("ini", SyntaxConstants.SYNTAX_STYLE_INI), Map.entry("toml", SyntaxConstants.SYNTAX_STYLE_YAML),
+			Map.entry("sh", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
+			Map.entry("bash", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
+			Map.entry("zsh", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
+			Map.entry("ksh", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
+			Map.entry("bat", SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH),
+			Map.entry("cmd", SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH),
+			Map.entry("rb", SyntaxConstants.SYNTAX_STYLE_RUBY), Map.entry("jsp", SyntaxConstants.SYNTAX_STYLE_HTML),
+			Map.entry("groovy", SyntaxConstants.SYNTAX_STYLE_GROOVY),
+			Map.entry("gradle", SyntaxConstants.SYNTAX_STYLE_GROOVY),
+			Map.entry("kt", SyntaxConstants.SYNTAX_STYLE_KOTLIN), Map.entry("scala", SyntaxConstants.SYNTAX_STYLE_SCALA),
+			Map.entry("lua", SyntaxConstants.SYNTAX_STYLE_LUA), Map.entry("pl", SyntaxConstants.SYNTAX_STYLE_PERL),
+			Map.entry("dart", SyntaxConstants.SYNTAX_STYLE_DART),
 			Map.entry("csv", SyntaxConstants.SYNTAX_STYLE_CSV), Map.entry("log", SyntaxConstants.SYNTAX_STYLE_NONE),
 			Map.entry("txt", SyntaxConstants.SYNTAX_STYLE_NONE));
 
