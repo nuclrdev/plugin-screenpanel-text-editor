@@ -62,7 +62,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
-import org.fife.ui.rsyntaxtextarea.DocumentRange;
+import org.fife.ui.rtextarea.DocumentRange;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import dev.nuclr.platform.NuclrThemeScheme;
