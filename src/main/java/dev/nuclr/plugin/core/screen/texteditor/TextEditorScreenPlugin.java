@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.screen.texteditor;
 
+import static dev.nuclr.plugin.core.screen.texteditor.Messages.tr;
+
 import java.awt.BorderLayout;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -245,9 +247,9 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	@Override
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
-		var f2 = new NuclrMenuResource("Save", "F2", SAVE_ACTION);
-		var f3 = new NuclrMenuResource("Quit", "F3", REQUEST_CLOSE_ACTION);
-		var f7 = new NuclrMenuResource("Search", "F7", FIND_ACTION);
+		var f2 = new NuclrMenuResource(tr("menu.save"), "F2", SAVE_ACTION);
+		var f3 = new NuclrMenuResource(tr("menu.quit"), "F3", REQUEST_CLOSE_ACTION);
+		var f7 = new NuclrMenuResource(tr("menu.search"), "F7", FIND_ACTION);
 
 		// A resource with no local file cannot be written back, so it is not offered.
 		if (resource != null && resource.getPath() == null) {
@@ -260,6 +262,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	@Override
 	public void preinit(NuclrPluginContext context) {
 		this.context = context;
+		Messages.use(context.getLocale());
 		if (context.getEventBus() != null) {
 			context.getEventBus().subscribe(this);
 		}
@@ -300,7 +303,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			// the temp file the detector may have staged is about to be deleted.
 			content = readContent(resource);
 		} catch (Exception ex) {
-			content = "Error reading file: " + ex.getMessage();
+			content = tr("error.reading", ex.getMessage());
 			editable = false;
 		}
 
@@ -465,14 +468,14 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		try {
 			SaveResult result = saveInternal(true);
 			if (result == SaveResult.UNAVAILABLE) {
-				JOptionPane.showMessageDialog(panel, "Could not save the file.", "Save failed",
+				JOptionPane.showMessageDialog(panel, tr("save.unavailable"), tr("save.failed.title"),
 						JOptionPane.ERROR_MESSAGE);
 			} else if (showSuccessNotification && isSaveSuccess(result)) {
-				showSaveToast(result == SaveResult.UNCHANGED ? "Already saved" : "Saved");
+				showSaveToast(result == SaveResult.UNCHANGED ? tr("save.already") : tr("save.done"));
 			}
 			return result;
 		} catch (Exception ex) {
-			JOptionPane.showMessageDialog(panel, "Error saving file: " + ex.getMessage(), "Save failed",
+			JOptionPane.showMessageDialog(panel, tr("save.error", ex.getMessage()), tr("save.failed.title"),
 					JOptionPane.ERROR_MESSAGE);
 			return SaveResult.FAILED;
 		}
@@ -511,8 +514,8 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private boolean confirmOverwriteExternalChanges() {
 		int choice = JOptionPane.showConfirmDialog(panel,
-				"The file has changed on disk since it was opened or last saved.\nOverwrite those changes?",
-				"File modified elsewhere", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+				tr("external.change.message"),
+				tr("external.change.title"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 		return choice == JOptionPane.YES_OPTION;
 	}
 
@@ -662,12 +665,12 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private int showUnsavedChangesDialog() {
 		var result = new int[] { JOptionPane.CANCEL_OPTION };
-		var save = new JButton("Save");
-		var dontSave = new JButton("Don't Save");
-		var cancel = new JButton("Cancel");
+		var save = new JButton(tr("unsaved.save"));
+		var dontSave = new JButton(tr("unsaved.dont.save"));
+		var cancel = new JButton(tr("common.cancel"));
 		var buttons = new JButton[] { save, dontSave, cancel };
 
-		var pane = new JOptionPane("Save changes before closing?", JOptionPane.WARNING_MESSAGE,
+		var pane = new JOptionPane(tr("unsaved.message"), JOptionPane.WARNING_MESSAGE,
 				JOptionPane.YES_NO_CANCEL_OPTION, null, buttons, save);
 
 		save.addActionListener(e -> {
@@ -683,7 +686,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			pane.setValue(cancel);
 		});
 
-		JDialog dialog = pane.createDialog(panel, "Unsaved changes");
+		JDialog dialog = pane.createDialog(panel, tr("unsaved.title"));
 		installDialogButtonTraversal(dialog, buttons);
 		SwingUtilities.invokeLater(() -> focusDialogButton(save));
 		dialog.setVisible(true);
@@ -810,25 +813,25 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private void createSearchDialog() {
 		Window owner = SwingUtilities.getWindowAncestor(panel);
-		searchDialog = new JDialog(owner, "Search", Dialog.ModalityType.MODELESS);
+		searchDialog = new JDialog(owner, tr("search.title"), Dialog.ModalityType.MODELESS);
 		searchDialog.setDefaultCloseOperation(JDialog.HIDE_ON_CLOSE);
 
 		searchField = new JTextField(34);
-		searchTextMode = new JRadioButton("Text", true);
-		searchHexMode = new JRadioButton("Hex");
+		searchTextMode = new JRadioButton(tr("search.mode.text"), true);
+		searchHexMode = new JRadioButton(tr("search.mode.hex"));
 		var modes = new ButtonGroup();
 		modes.add(searchTextMode);
 		modes.add(searchHexMode);
 
-		searchCaseSensitive = new JCheckBox("Case sensitive");
-		searchRegex = new JCheckBox("Regular expressions");
-		searchWholeWords = new JCheckBox("Whole words");
-		searchFuzzy = new JCheckBox("Fuzzy search");
+		searchCaseSensitive = new JCheckBox(tr("search.case.sensitive"));
+		searchRegex = new JCheckBox(tr("search.regex"));
+		searchWholeWords = new JCheckBox(tr("search.whole.words"));
+		searchFuzzy = new JCheckBox(tr("search.fuzzy"));
 		searchStatus = new JLabel(" ");
 
-		var previous = new JButton("Find previous");
-		var next = new JButton("Find next");
-		var cancel = new JButton("Cancel");
+		var previous = new JButton(tr("search.find.previous"));
+		var next = new JButton(tr("search.find.next"));
+		var cancel = new JButton(tr("common.cancel"));
 
 		previous.addActionListener(e -> runSearch(false));
 		next.addActionListener(e -> runSearch(true));
@@ -856,7 +859,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 		gbc.gridx = 0;
 		gbc.gridy = 0;
-		main.add(new JLabel("Search for"), gbc);
+		main.add(new JLabel(tr("search.for")), gbc);
 
 		gbc.gridx = 1;
 		gbc.weightx = 1;
@@ -974,11 +977,12 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 					: findTextMatch(query, forward, options);
 			if (match == null) {
 				clearSearchHighlight();
-				setSearchStatus("Not found", true);
+				setSearchStatus(tr("search.not.found"), true);
 				return;
 			}
 			selectSearchMatch(match);
-			setSearchStatus((match.wrapped() ? "Wrapped, " : "") + lineColumnStatus(match.start()), false);
+			setSearchStatus(match.wrapped() ? tr("search.wrapped", lineColumnStatus(match.start()))
+					: lineColumnStatus(match.start()), false);
 		} catch (IllegalArgumentException ex) {
 			setSearchStatus(ex.getMessage(), true);
 		}
@@ -986,7 +990,7 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private SearchMatch findTextMatch(String query, boolean forward, SearchOptions options) {
 		if (query == null || query.isEmpty()) {
-			throw new IllegalArgumentException("Enter text to search for.");
+			throw new IllegalArgumentException(tr("search.enter.text"));
 		}
 		String text = textArea.getText();
 		if (text.isEmpty()) {
@@ -1201,19 +1205,19 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private static byte[] parseHexQuery(String query) {
 		if (query == null || query.isBlank()) {
-			throw new IllegalArgumentException("Enter hex bytes to search for.");
+			throw new IllegalArgumentException(tr("search.enter.hex"));
 		}
 		String normalized = query.replaceAll("(?i)0x", "")
 				.replaceAll("(?i)\\\\x", "")
 				.replaceAll("[\\s,;:_-]+", "");
 		if (normalized.isEmpty()) {
-			throw new IllegalArgumentException("Enter hex bytes to search for.");
+			throw new IllegalArgumentException(tr("search.enter.hex"));
 		}
 		if ((normalized.length() & 1) != 0) {
-			throw new IllegalArgumentException("Hex search needs pairs of digits.");
+			throw new IllegalArgumentException(tr("search.hex.pairs"));
 		}
 		if (!normalized.matches("[0-9a-fA-F]+")) {
-			throw new IllegalArgumentException("Hex search can only contain 0-9 and A-F.");
+			throw new IllegalArgumentException(tr("search.hex.chars"));
 		}
 
 		byte[] bytes = new byte[normalized.length() / 2];
@@ -1340,9 +1344,9 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		try {
 			int line = textArea.getLineOfOffset(offset);
 			int column = offset - textArea.getLineStartOffset(line);
-			return "Line " + (line + 1) + ", column " + (column + 1);
+			return tr("search.line.column", String.valueOf(line + 1), String.valueOf(column + 1));
 		} catch (BadLocationException e) {
-			return "Found";
+			return tr("search.found");
 		}
 	}
 

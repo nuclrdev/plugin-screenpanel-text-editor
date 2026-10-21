@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.screen.texteditor;
 
+import static dev.nuclr.plugin.core.screen.texteditor.Messages.tr;
+
 import java.util.List;
 
 import dev.nuclr.platform.plugin.NuclrMenuResource;
@@ -24,13 +26,13 @@ public class TextViewerScreenPlugin extends TextEditorScreenPlugin {
 	public List<NuclrMenuResource> menuItems(NuclrResource resource) {
 
 		// No event type: Commander answers F1 by opening this plugin's docUrl.
-		var f1 = new NuclrMenuResource("Help", "F1", "");
-		var f2 = new NuclrMenuResource("Wrap", "F2", "plugin.text.editor.wrap");
-		var f3 = new NuclrMenuResource("Quit", "F3", "plugin.fullscreen.close");
-		var f4 = new NuclrMenuResource("Hex", "F4", "plugin.text.editor.hex");
-		var f6 = new NuclrMenuResource("Edit", "F6", "plugin.text.editor.edit");
-		var f7 = new NuclrMenuResource("Search", "F7", "plugin.text.editor.search");
-		var f10 = new NuclrMenuResource("Quit", "F10", "");
+		var f1 = new NuclrMenuResource(tr("menu.help"), "F1", "");
+		var f2 = new NuclrMenuResource(tr("menu.wrap"), "F2", "plugin.text.editor.wrap");
+		var f3 = new NuclrMenuResource(tr("menu.quit"), "F3", "plugin.fullscreen.close");
+		var f4 = new NuclrMenuResource(tr("menu.hex"), "F4", "plugin.text.editor.hex");
+		var f6 = new NuclrMenuResource(tr("menu.edit"), "F6", "plugin.text.editor.edit");
+		var f7 = new NuclrMenuResource(tr("menu.search"), "F7", "plugin.text.editor.search");
+		var f10 = new NuclrMenuResource(tr("menu.quit"), "F10", "");
 
 		return List.of(f1, f2, f3, f4, f6, f7, f10);
 
