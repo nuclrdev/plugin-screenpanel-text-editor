@@ -118,6 +118,8 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 			Map.entry("groovy", SyntaxConstants.SYNTAX_STYLE_GROOVY),
 			Map.entry("gradle", SyntaxConstants.SYNTAX_STYLE_GROOVY),
 			Map.entry("kt", SyntaxConstants.SYNTAX_STYLE_KOTLIN), Map.entry("scala", SyntaxConstants.SYNTAX_STYLE_SCALA),
+			// Registered by Commander; an older one without it shows plain text.
+			Map.entry("gd", "text/gdscript"),
 			Map.entry("lua", SyntaxConstants.SYNTAX_STYLE_LUA), Map.entry("pl", SyntaxConstants.SYNTAX_STYLE_PERL),
 			Map.entry("dart", SyntaxConstants.SYNTAX_STYLE_DART),
 			Map.entry("csv", SyntaxConstants.SYNTAX_STYLE_CSV), Map.entry("log", SyntaxConstants.SYNTAX_STYLE_NONE),
@@ -125,9 +127,11 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 
 	private final String uuid = UUID.randomUUID().toString();
 	private final JPanel panel = new JPanel(new BorderLayout());
-	private final RSyntaxTextArea textArea = new RSyntaxTextArea();
+	private final RSyntaxTextArea textArea = new EvenTabSyntaxTextArea();
 	private final RTextScrollPane scroll = new RTextScrollPane(textArea);
 	private NuclrPluginContext context;
+	/** Whether the syntax colours loaded are the dark set; {@code null} before the first load. */
+	private Boolean darkSyntaxTheme;
 	private NuclrResource currentResource;
 	private String titlePath;
 	private FileStamp lastKnownFileStamp;
@@ -153,12 +157,6 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		textArea.setTabsEmulated(false);
 		textArea.setLineWrap(false);
 		textArea.setWrapStyleWord(true);
-		try (InputStream themeIn = getClass().getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/dark.xml")) {
-			if (themeIn != null) {
-				Theme.load(themeIn).apply(textArea);
-			}
-		} catch (IOException ignored) {
-		}
 		scroll.setLineNumbersEnabled(true);
 		panel.add(scroll, BorderLayout.CENTER);
 		attachDirtyTracking();
@@ -592,10 +590,13 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 	}
 
 	private void applyUiTheme(NuclrThemeScheme themeScheme) {
+		Color background = themeColor(themeScheme, "Panel.background", textArea.getBackground());
+		// First: a syntax theme brings its own font and colours, which the rest of this replaces.
+		loadSyntaxTheme(isDark(background));
+
 		Font base = themeScheme != null ? themeScheme.defaultFont() : UIManager.getFont("defaultFont");
 		textArea.setFont(editorFont(base));
 
-		Color background = themeColor(themeScheme, "Panel.background", textArea.getBackground());
 		Color foreground = themeColor(themeScheme, "Panel.foreground", textArea.getForeground());
 		Color accentSelection = themeColor(themeScheme, "Table.selectionBackground", textArea.getSelectionColor());
 		Color selectionBackground = ensureContrast(background, accentSelection,
@@ -623,6 +624,32 @@ public class TextEditorScreenPlugin implements FullscreenNuclrPlugin, NuclrEvent
 		scroll.setBackground(background);
 		panel.setBackground(background);
 
+	}
+
+	/**
+	 * Token colours to suit the background: the dark set on a light theme draws keywords,
+	 * names and punctuation too pale to read.
+	 */
+	private void loadSyntaxTheme(boolean dark) {
+		if (darkSyntaxTheme != null && darkSyntaxTheme == dark) {
+			return;
+		}
+		String resource = dark
+				? "/org/fife/ui/rsyntaxtextarea/themes/dark.xml"
+				: "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+		try (InputStream themeIn = getClass().getResourceAsStream(resource)) {
+			if (themeIn != null) {
+				Theme.load(themeIn).apply(textArea);
+				darkSyntaxTheme = dark;
+			}
+		} catch (IOException e) {
+			log.warn("Could not load RSyntaxTextArea theme: {}", resource, e);
+		}
+	}
+
+	private static boolean isDark(Color c) {
+		double luminance = 0.299 * c.getRed() + 0.587 * c.getGreen() + 0.114 * c.getBlue();
+		return luminance < 128;
 	}
 
 	private void registerFullscreenCloseShortcut() {
